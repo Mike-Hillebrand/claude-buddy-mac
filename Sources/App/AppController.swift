@@ -88,7 +88,8 @@ final class AppController: NSObject, NSMenuDelegate {
         setupStatusItem()
 
         hooks = HookWatcher { [weak self] ev in
-            DispatchQueue.main.async { self?.store.apply(hook: ev) }
+            guard let self = self, !self.demoMode else { return }   // demo mode: states come from the command channel
+            DispatchQueue.main.async { self.store.apply(hook: ev) }
         }
         hooks.start()
 
@@ -102,10 +103,19 @@ final class AppController: NSObject, NSMenuDelegate {
         pollTimer?.tolerance = 1
         poll()
 
-        quip(S.t("hello"), seconds: 4)
+        let args = CommandLine.arguments
+        if !args.contains("--no-greeting") { quip(S.t("hello"), seconds: 4) }
         onTick()
         if settings.wander { startWander() }
-        if CommandLine.arguments.contains("--game") { openGame() }
+        // Demo/test flags: deterministic wandering and an open game board.
+        if let a = args.first(where: { $0.hasPrefix("--wander-dir=") }), let d = Double(a.dropFirst(13)) { wanderDir = d < 0 ? -1 : 1 }
+        if args.contains("--walk-now") {
+            settings.wander = true
+            if wanderTimer == nil { startWander() }
+            wanderResting = false
+            wanderPhaseUntil = Date().addingTimeInterval(40)
+        }
+        if args.contains("--game") { openGame() }
     }
 
     // MARK: Wandering (edges only, never across the screen)
@@ -290,11 +300,82 @@ final class AppController: NSObject, NSMenuDelegate {
         if panel.ignoresMouseEvents == hit { panel.ignoresMouseEvents = !hit }
     }
 
+    // MARK: Demo command channel (`--demo`): lines in ~/Library/Application Support/Buddy/cmd.txt
+
+    private let demoMode = CommandLine.arguments.contains("--demo")
+    private var demoCmdPath: String {
+        NSString(string: "~/Library/Application Support/Buddy/cmd.txt").expandingTildeInPath
+    }
+
+    private func pollDemoCommands() {
+        guard demoMode, let data = FileManager.default.contents(atPath: demoCmdPath),
+              let text = String(data: data, encoding: .utf8) else { return }
+        try? FileManager.default.removeItem(atPath: demoCmdPath)
+        for raw in text.split(separator: "\n") {
+            let parts = raw.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1).map(String.init)
+            guard let cmd = parts.first else { continue }
+            let arg = parts.count > 1 ? parts[1] : ""
+            runDemoCommand(cmd, arg)
+        }
+    }
+
+    private func runDemoCommand(_ cmd: String, _ arg: String) {
+        switch cmd {
+        case "pet": petTheBuddy()
+        case "clear": store.removeAll()
+        case "quip": quip(arg, seconds: 4)
+        case "menu":
+            // Pop the context menu up next to the sprite (as if right-clicked).
+            let m = NSMenu(); m.delegate = self; buildMenu(into: m)
+            let fs = settings.size.fontSize
+            let spriteW: CGFloat = settings.style == .pixel ? vm.cell * CGFloat(PixelBank.cols + 2) : fs * 0.602 * 12 + 4
+            let spriteH: CGFloat = settings.style == .pixel ? vm.cell * CGFloat(PixelBank.rows + PixelBank.hatRows + 2) : fs * 1.2 * 5
+            let at = NSPoint(x: 10 + spriteW, y: 8 + fs + spriteH)
+            DispatchQueue.main.async { m.popUp(positioning: nil, at: at, in: self.panel.contentView) }
+        case "species":
+            settings.speciesId = arg; settings.lookInitialized = true
+            look = settings.currentLook(); pixelSpecies = settings.currentPixelSpecies()
+            quip("\(S.t("iam")) \(settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName).", seconds: 3)
+        case "hat": if let h = Hat(rawValue: arg) { settings.hat = h; look = settings.currentLook() }
+        case "eyes": if let e = EyeStyle(rawValue: arg) { settings.eyes = e; look = settings.currentLook() }
+        case "theme": if let t = Theme(rawValue: arg) { settings.theme = t; vm.theme = t; gameVM.theme = t }
+        case "size": if let sz = PetSize(rawValue: arg) { settings.size = sz; vm.fontSize = sz.fontSize; vm.cell = sz.cell; placePanel() }
+        case "usage": if let u = UsageMode(rawValue: arg) { settings.usageMode = u; vm.usageMode = u; lastUsagePoll = .distantPast; placePanel(); poll() }
+        case "style": if let st = SpriteStyle(rawValue: arg) { settings.style = st; vm.style = st; placePanel() }
+        case "lang": if let l = Lang(rawValue: arg) { settings.lang = l; S.lang = l }
+        case "flat": settings.flat = arg == "1"
+        case "card": settings.card = arg == "1"; vm.card = settings.card
+        case "wander":
+            let on = arg.hasPrefix("1")
+            settings.wander = on
+            if on { startWander() } else { stopWander() }
+            if arg.contains("-1") { wanderDir = -1 } else if arg.contains("+1") { wanderDir = 1 }
+        case "walk-now":
+            settings.wander = true
+            if wanderTimer == nil { startWander() }
+            wanderResting = false
+            wanderPhaseUntil = Date().addingTimeInterval(Double(arg) ?? 30)
+        case "rest": wanderResting = true; wanderPhaseUntil = Date().addingTimeInterval(Double(arg) ?? 30)
+        case "game": openGame()
+        case "game-close": closeGame()
+        case "move": if let i = Int(arg) { humanMove(i) }
+        case "state":
+            // e.g. `state working Edit` → fakes a focus session for screenshots
+            let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            let st: PetState = [
+                "sleeping": .sleeping, "idle": .idle, "ready": .ready, "thinking": .thinking, "working": .working, "attention": .attention,
+            ][p.first ?? ""] ?? .idle
+            store.setDemoSession(state: st, detail: p.count > 1 ? p[1] : "")
+        default: break
+        }
+    }
+
     // MARK: Tick / animation
 
     private func onTick() {
         tick += 1
         if tick % 40 == 0 { store.prune() }
+        if demoMode { pollDemoCommands() }
 
         let state = store.globalState
         let focus = store.focus
@@ -893,6 +974,19 @@ final class AppController: NSObject, NSMenuDelegate {
         gp.setFrameOrigin(NSPoint(x: x, y: y))
         gp.orderFrontRegardless()
         newGame(starter: .x)
+        if demoMode {
+            let path = NSString(string: "~/Library/Application Support/Buddy/game-frame.txt").expandingTildeInPath
+            try? NSStringFromRect(gp.frame).write(toFile: path, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Demo mode: mirrors the board to a file so a script can play against the buddy.
+    private func writeGameState() {
+        guard demoMode else { return }
+        let cells = gameVM.game.cells.map { $0 == .x ? "X" : ($0 == .o ? "O" : ".") }.joined()
+        let line = "\(cells) turn=\(gameVM.game.turn == .x ? "X" : "O") over=\(gameVM.game.isOver ? 1 : 0) thinking=\(gameVM.buddyThinking ? 1 : 0)"
+        let path = NSString(string: "~/Library/Application Support/Buddy/game-state.txt").expandingTildeInPath
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     private func closeGame() {
@@ -912,10 +1006,12 @@ final class AppController: NSObject, NSMenuDelegate {
             gameVM.message = S.t("ttt.yourturn")
             quip(S.t("ttt.bubble.start"), seconds: 2)
         }
+        writeGameState()
     }
 
     private func humanMove(_ i: Int) {
         guard gameVM.game.turn == .x, !gameVM.buddyThinking, gameVM.game.play(i) else { return }
+        writeGameState()
         if finishIfOver() { return }
         scheduleBuddyMove()
     }
@@ -931,6 +1027,7 @@ final class AppController: NSObject, NSMenuDelegate {
             if let m = self.gameVM.game.move(skill: 0.8) { self.gameVM.game.play(m) }
             self.gameVM.buddyThinking = false
             if !self.finishIfOver() { self.gameVM.message = S.t("ttt.yourturn") }
+            self.writeGameState()
         }
     }
 

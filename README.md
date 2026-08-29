@@ -103,11 +103,20 @@ Sources/Core/   sprites (ASCII + pixel, hats, eyes, speech bubble), localization
 Sources/App/    AppKit/SwiftUI: panel, view, menu, hook watcher, API client, settings
 Resources/      app icon (rendered from the Clawd sprite; .icns is generated at build time)
 hooks/          buddy-hook.sh, install-hooks.py
+tools/          demo.sh (records the feature demo via `Buddy --demo`), uiclick.swift (synthetic clicks), screens.swift
 Tests/          CoreTests.swift (also runs on Linux Swift)
 ```
 
 Core tests: copy `Tests/CoreTests.swift` to `main.swift`, then
 `swiftc -swift-version 5 Sources/Core/*.swift main.swift -o /tmp/t && /tmp/t`.
+
+## Demo mode
+
+`Buddy --demo` reads commands from `~/Library/Application Support/Buddy/cmd.txt` (one per line:
+`state working Edit`, `species cat`, `hat crown`, `theme lime`, `usage ticker`, `wander 1 -1`,
+`walk-now 14`, `game`, `move 4`, `menu`, `pet`, `quip <text>`, …) and ignores real hook events, so a
+script can walk it through every feature for a recording — see `tools/demo.sh`. Other flags:
+`--no-greeting`, `--game`, `--walk-now`, `--wander-dir=-1`.
 
 ## Drawing your own pixel species
 

@@ -325,6 +325,16 @@ final class SessionStore {
         }
     }
 
+    /// Demo helper: one synthetic session in the given state (or none for `.sleeping`).
+    func setDemoSession(state: PetState, detail: String) {
+        if state == .sleeping { sessions.removeValue(forKey: "demo"); return }
+        var s = sessions["demo"] ?? TrackedSession(id: "demo", source: .code, title: "buddy-demo", state: state, detail: detail, updated: now())
+        s.state = state; s.detail = detail; s.updated = now()
+        sessions["demo"] = s
+        if state == .attention { addMoment(.attention, "buddy-demo: \(detail)") }
+        if state == .ready { addMoment(.done, "buddy-demo \(S.t("done"))") }
+    }
+
     func removeAll() { sessions.removeAll() }
 }
 
