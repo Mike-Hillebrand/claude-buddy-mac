@@ -4,16 +4,7 @@ import AppKit
 enum Theme: String, CaseIterable, Identifiable {
     case terracotta, red, lime, azurio, ink, snow
     var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .terracotta: return "Claude Terracotta"
-        case .red: return "Blocky Red"
-        case .lime: return "Lime"
-        case .azurio: return "Azurio Blau"
-        case .ink: return "Tinte"
-        case .snow: return "Weiß"
-        }
-    }
+    var label: String { S.t("theme." + rawValue) }
     var color: NSColor {
         switch self {
         case .terracotta: return NSColor(red: 0.85, green: 0.47, blue: 0.34, alpha: 1)   // #D97757
@@ -34,25 +25,19 @@ enum PetSize: String, CaseIterable, Identifiable {
     }
     /// Edge length of one pixel cell (pixel style).
     var cell: CGFloat { (fontSize * 0.6).rounded() }
-    var label: String {
-        switch self { case .s: return "Klein"; case .m: return "Mittel"; case .l: return "Groß"; case .xl: return "Riesig" }
-    }
+    var label: String { S.t("size." + rawValue) }
 }
 
 enum UsageMode: String, CaseIterable, Identifiable {
     case off, bar, ticker
     var id: String { rawValue }
-    var label: String {
-        switch self { case .off: return "Aus"; case .bar: return "Balken"; case .ticker: return "Laufschrift" }
-    }
+    var label: String { S.t("usage." + rawValue) }
 }
 
 enum SpriteStyle: String, CaseIterable, Identifiable {
     case pixel, ascii
     var id: String { rawValue }
-    var label: String {
-        switch self { case .pixel: return "Pixel (gefüllt)"; case .ascii: return "ASCII (Terminal)" }
-    }
+    var label: String { S.t("style." + rawValue) }
 }
 
 final class Settings {
@@ -70,6 +55,15 @@ final class Settings {
     var style: SpriteStyle {
         get { SpriteStyle(rawValue: d.string(forKey: "style") ?? "") ?? .pixel }
         set { d.set(newValue.rawValue, forKey: "style") }
+    }
+    /// UI language; defaults to German on German systems, English elsewhere.
+    var lang: Lang {
+        get {
+            if let raw = d.string(forKey: "lang"), let l = Lang(rawValue: raw) { return l }
+            let pref = Locale.preferredLanguages.first ?? "en"
+            return pref.hasPrefix("de") ? .de : .en
+        }
+        set { d.set(newValue.rawValue, forKey: "lang") }
     }
     var usageMode: UsageMode {
         get { UsageMode(rawValue: d.string(forKey: "usage") ?? "") ?? .bar }

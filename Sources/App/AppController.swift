@@ -14,6 +14,7 @@ final class AppController: NSObject, NSMenuDelegate {
     private var hooks: HookWatcher!
     private var tickTimer: Timer?
     private var pollTimer: Timer?
+    private var mouseTimer: Timer?
     private var tick = 0
     private var look: SpriteLook
     private var pixelSpecies: PixelSpecies
@@ -21,7 +22,7 @@ final class AppController: NSObject, NSMenuDelegate {
     private var quipText = ""
     private var quipUntil = Date.distantPast
     private var particleCounter = 0
-    private var apiStatus = "noch nicht abgefragt"
+    private var apiStatus = ""
     private var apiBackoffUntil = Date.distantPast
     private var lastChatPoll = Date.distantPast
     private var lastUsagePoll = Date.distantPast
@@ -37,6 +38,7 @@ final class AppController: NSObject, NSMenuDelegate {
     // MARK: Lifecycle
 
     func start() {
+        S.lang = settings.lang
         vm.theme = settings.theme
         vm.fontSize = settings.size.fontSize
         vm.cell = settings.size.cell
@@ -59,6 +61,7 @@ final class AppController: NSObject, NSMenuDelegate {
         panel.onMoved = { [weak self] in
             guard let self = self else { return }
             self.settings.panelOrigin = self.panel.frame.origin
+            NSLog("Buddy: moved to %@", NSStringFromPoint(self.panel.frame.origin))
         }
         placePanel()
         panel.orderFrontRegardless()
@@ -72,11 +75,15 @@ final class AppController: NSObject, NSMenuDelegate {
 
         tickTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.onTick() }
         tickTimer?.tolerance = 0.05
+        // Only the drawn parts of the (mostly transparent) panel should catch the mouse, so windows
+        // underneath — e.g. another desktop pet — stay clickable. Cheap: one mouse-location read per tick.
+        mouseTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in self?.updateMousePassThrough() }
+        mouseTimer?.tolerance = 0.02
         pollTimer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in self?.poll() }
         pollTimer?.tolerance = 1
         poll()
 
-        quip("Buddy ist da.", seconds: 4)
+        quip(S.t("hello"), seconds: 4)
         onTick()
     }
 
@@ -97,13 +104,55 @@ final class AppController: NSObject, NSMenuDelegate {
     private func placePanel() {
         let size = panelSize()
         panel.setContentSize(size)
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        var origin = settings.panelOrigin ?? NSPoint(x: vis.maxX - size.width - 24, y: vis.minY + 24)
-        // keep on screen
-        origin.x = min(max(origin.x, vis.minX - size.width + 60), vis.maxX - 60)
-        origin.y = min(max(origin.y, vis.minY - size.height + 60), vis.maxY - 60)
-        panel.setFrameOrigin(origin)
+        let screens = NSScreen.screens
+        let main = NSScreen.main ?? screens.first
+        let vis = main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        if let saved = settings.panelOrigin {
+            // Keep the saved spot as long as the sprite area is still on *some* screen (multi-display safe).
+            let core = NSRect(x: saved.x + 10, y: saved.y + 10, width: min(size.width, 120), height: min(size.height, 120))
+            if screens.contains(where: { $0.frame.intersects(core) }) {
+                panel.setFrameOrigin(saved)
+                return
+            }
+        }
+        panel.setFrameOrigin(NSPoint(x: vis.maxX - size.width - 24, y: vis.minY + 24))
+    }
+
+    /// Rects (panel coordinates, origin bottom-left) that should react to the mouse.
+    private func hitRects() -> [NSRect] {
+        let fs = vm.fontSize
+        let pad: CGFloat = 10, bottom: CGFloat = 8
+        let small = max(9, fs * 0.72)
+        let labelH = small * 1.3 + 6
+        let usageH: CGFloat = settings.usageMode == .off ? 0 : small * 1.3 + 4
+        let spriteW: CGFloat = settings.style == .pixel ? vm.cell * CGFloat(PixelBank.cols + 2) : fs * 0.602 * 12 + 4
+        let spriteH: CGFloat = settings.style == .pixel ? vm.cell * CGFloat(PixelBank.rows + PixelBank.hatRows + 2) : fs * 1.2 * 5
+        var rects: [NSRect] = []
+        let stripW = max(spriteW, fs * 0.602 * 22)
+        rects.append(NSRect(x: pad, y: bottom, width: stripW + 8, height: labelH + usageH))
+        let spriteY = bottom + labelH + usageH
+        rects.append(NSRect(x: pad, y: spriteY, width: spriteW + 4, height: spriteH + 4))
+        let bubbleLines = settings.style == .pixel ? vm.bubbleText.split(separator: "\n").map(String.init) : vm.bubble
+        if !bubbleLines.isEmpty {
+            let longest = bubbleLines.map { $0.count }.max() ?? 0
+            let w = CGFloat(longest) * fs * 0.602 + 24
+            let h = CGFloat(bubbleLines.count) * fs * 1.2 + 24
+            rects.append(NSRect(x: pad, y: spriteY + spriteH, width: w, height: h))
+        }
+        return rects
+    }
+
+    private func updateMousePassThrough() {
+        guard let panel = panel, let catcher = panel.contentView as? DragCatcherView else { return }
+        if catcher.isDragging { panel.ignoresMouseEvents = false; return }
+        let loc = NSEvent.mouseLocation
+        guard panel.frame.contains(loc) else {
+            if panel.ignoresMouseEvents { panel.ignoresMouseEvents = false }   // idle default: catch, so a fresh entry works
+            return
+        }
+        let local = NSPoint(x: loc.x - panel.frame.minX, y: loc.y - panel.frame.minY)
+        let hit = hitRects().contains { $0.contains(local) }
+        if panel.ignoresMouseEvents == hit { panel.ignoresMouseEvents = !hit }
     }
 
     // MARK: Tick / animation
@@ -168,7 +217,7 @@ final class AppController: NSObject, NSMenuDelegate {
         var text = ""
         var accent = false
         if let f = focus, state == .attention {
-            text = f.detail.isEmpty ? "\(f.title): braucht dich" : "\(f.title): \(f.detail)"; accent = true
+            text = f.detail.isEmpty ? "\(f.title): \(S.t("needs.you"))" : "\(f.title): \(f.detail)"; accent = true
         } else if let m = errM {
             text = "✗ " + m.text; accent = true
         } else if let m = doneM {
@@ -176,7 +225,7 @@ final class AppController: NSObject, NSMenuDelegate {
         } else if let m = attM {
             text = m.text; accent = true
         } else if petM != nil {
-            text = "♥ " + Quips.pick(["danke", "jaaa", "noch mal", "mhm", "fein"], seed: tick / 10)
+            text = "♥ " + Quips.pick(Quips.thanks, seed: tick / 10)
         } else if state == .thinking {
             text = ["·", "··", "···"][(tick / 2) % 3]
         } else if state == .working, let f = focus {
@@ -211,15 +260,15 @@ final class AppController: NSObject, NSMenuDelegate {
         if state != vm.state { vm.state = state }
         let label: String
         switch state {
-        case .sleeping: label = hooks.hooksInstalled ? "keine Sessions" : "Hooks nicht installiert"
+        case .sleeping: label = hooks.hooksInstalled ? S.t("no.sessions") : S.t("hooks.missing")
         default:
             let counts = store.counts
             var parts: [String] = []
-            if let n = counts[.attention], n > 0 { parts.append("\(n) braucht dich") }
-            if let n = counts[.working], n > 0 { parts.append("\(n) arbeitet") }
-            if let n = counts[.thinking], n > 0 { parts.append("\(n) denkt") }
-            if let n = counts[.ready], n > 0 { parts.append("\(n) bereit") }
-            if let n = counts[.idle], n > 0 { parts.append("\(n) idle") }
+            if let n = counts[.attention], n > 0 { parts.append("\(n) \(S.t(n == 1 ? "n.attention.1" : "n.attention"))") }
+            if let n = counts[.working], n > 0 { parts.append("\(n) \(S.t("n.working"))") }
+            if let n = counts[.thinking], n > 0 { parts.append("\(n) \(S.t("n.thinking"))") }
+            if let n = counts[.ready], n > 0 { parts.append("\(n) \(S.t("n.ready"))") }
+            if let n = counts[.idle], n > 0 { parts.append("\(n) \(S.t("n.idle"))") }
             label = parts.joined(separator: " · ")
         }
         if label != vm.label { vm.label = label }
@@ -241,16 +290,16 @@ final class AppController: NSObject, NSMenuDelegate {
     private func relative(_ date: Date?, now: Date) -> String {
         guard let d = date else { return "" }
         let s = Int(d.timeIntervalSince(now))
-        if s <= 0 { return "jetzt" }
+        if s <= 0 { return S.t("now") }
         let h = s / 3600, m = (s % 3600) / 60, days = s / 86400
-        if days >= 1 { return "in \(days)d \(h % 24)h" }
-        if h >= 1 { return "in \(h)h \(m)m" }
-        return "in \(m)m"
+        if days >= 1 { return "\(S.t("in")) \(days)d \(h % 24)h" }
+        if h >= 1 { return "\(S.t("in")) \(h)h \(m)m" }
+        return "\(S.t("in")) \(m)m"
     }
 
     private func updateUsageText(now: Date, label: String) {
         guard let u = usage, !u.windows.isEmpty else {
-            let placeholder = api.lastError == nil ? "Usage lädt…" : "Usage: nicht verfügbar"
+            let placeholder = api.lastError == nil ? S.t("usage.loading") : S.t("usage.unavailable")
             if vm.usageLine != placeholder { vm.usageLine = placeholder }
             if vm.tickerText != placeholder { vm.tickerText = placeholder }
             return
@@ -263,7 +312,7 @@ final class AppController: NSObject, NSMenuDelegate {
         var parts: [String] = u.windows.map { w in
             var s = "\(w.label): \(Int(w.percent.rounded()))%"
             let r = relative(w.resetsAt, now: now)
-            if !r.isEmpty { s += " (Reset \(r))" }
+            if !r.isEmpty { s += " (\(S.t("reset")) \(r))" }
             return s
         }
         if !label.isEmpty { parts.append(label) }
@@ -326,7 +375,7 @@ final class AppController: NSObject, NSMenuDelegate {
             guard let self = self else { return }
             guard self.api.ensureCredentials() != nil else {
                 DispatchQueue.main.async {
-                    self.apiStatus = "Cookie: \(self.api.lastError ?? "unbekannt")"
+                    self.apiStatus = "\(S.t("api.status.cookie")): \(self.api.lastError ?? "?")"
                     self.apiBackoffUntil = Date().addingTimeInterval(60)
                 }
                 return
@@ -337,9 +386,9 @@ final class AppController: NSObject, NSMenuDelegate {
                         switch res {
                         case .success(let list):
                             self.store.apply(api: list)
-                            self.apiStatus = "verbunden · \(list.count) Sessions"
+                            self.apiStatus = "\(S.t("api.status.ok")) · \(list.count) \(S.t("api.status.sessions"))"
                         case .failure(let e):
-                            self.apiStatus = "Fehler: \(e)"
+                            self.apiStatus = "\(S.t("api.status.error")): \(e)"
                             self.apiBackoffUntil = Date().addingTimeInterval(30)
                         }
                     }
@@ -390,13 +439,13 @@ final class AppController: NSObject, NSMenuDelegate {
 
     private func buildMenu(into menu: NSMenu) {
         let state = store.globalState
-        let header = NSMenuItem(title: "Buddy \(state.label) · Cowork/Chat: \(apiStatus)", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Buddy \(state.label) · \(S.t("menu.cowork")): \(apiStatus.isEmpty ? S.t("api.status.none") : apiStatus)", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
 
         let sessions = store.visibleSessions
         if sessions.isEmpty {
-            let it = NSMenuItem(title: "Keine aktiven Sessions", action: nil, keyEquivalent: "")
+            let it = NSMenuItem(title: S.t("menu.no.sessions"), action: nil, keyEquivalent: "")
             it.isEnabled = false
             menu.addItem(it)
         } else {
@@ -419,24 +468,24 @@ final class AppController: NSObject, NSMenuDelegate {
             it.state = st == settings.style ? .on : .off
             styleMenu.addItem(it)
         }
-        addSub(look, "Stil", styleMenu)
+        addSub(look, S.t("menu.style"), styleMenu)
         let speciesMenu = NSMenu()
         if settings.style == .pixel {
             for sp in PixelBank.all {
-                let it = NSMenuItem(title: sp.name, action: #selector(pickSpecies(_:)), keyEquivalent: "")
+                let it = NSMenuItem(title: sp.displayName, action: #selector(pickSpecies(_:)), keyEquivalent: "")
                 it.target = self; it.representedObject = sp.id
                 it.state = sp.id == pixelSpecies.id ? .on : .off
                 speciesMenu.addItem(it)
             }
         } else {
             for sp in SpriteBank.all {
-                let it = NSMenuItem(title: sp.name, action: #selector(pickSpecies(_:)), keyEquivalent: "")
+                let it = NSMenuItem(title: sp.displayName, action: #selector(pickSpecies(_:)), keyEquivalent: "")
                 it.target = self; it.representedObject = sp.id
                 it.state = sp.id == self.look.species.id ? .on : .off
                 speciesMenu.addItem(it)
             }
         }
-        addSub(look, "Spezies", speciesMenu)
+        addSub(look, S.t("menu.species"), speciesMenu)
         let hatMenu = NSMenu()
         for h in Hat.allCases {
             let it = NSMenuItem(title: h.label, action: #selector(pickHat(_:)), keyEquivalent: "")
@@ -444,7 +493,7 @@ final class AppController: NSObject, NSMenuDelegate {
             it.state = h == self.look.hat ? .on : .off
             hatMenu.addItem(it)
         }
-        addSub(look, "Hut", hatMenu)
+        addSub(look, S.t("menu.hat"), hatMenu)
         let eyeMenu = NSMenu()
         for e in EyeStyle.allCases {
             let it = NSMenuItem(title: e.label, action: #selector(pickEyes(_:)), keyEquivalent: "")
@@ -452,7 +501,7 @@ final class AppController: NSObject, NSMenuDelegate {
             it.state = e == self.look.eyes ? .on : .off
             eyeMenu.addItem(it)
         }
-        addSub(look, "Augen", eyeMenu)
+        addSub(look, S.t("menu.eyes"), eyeMenu)
         let themeMenu = NSMenu()
         for t in Theme.allCases {
             let it = NSMenuItem(title: t.label, action: #selector(pickTheme(_:)), keyEquivalent: "")
@@ -460,7 +509,7 @@ final class AppController: NSObject, NSMenuDelegate {
             it.state = t == settings.theme ? .on : .off
             themeMenu.addItem(it)
         }
-        addSub(look, "Farbe", themeMenu)
+        addSub(look, S.t("menu.color"), themeMenu)
         let sizeMenu = NSMenu()
         for s in PetSize.allCases {
             let it = NSMenuItem(title: s.label, action: #selector(pickSize(_:)), keyEquivalent: "")
@@ -468,7 +517,7 @@ final class AppController: NSObject, NSMenuDelegate {
             it.state = s == settings.size ? .on : .off
             sizeMenu.addItem(it)
         }
-        addSub(look, "Größe", sizeMenu)
+        addSub(look, S.t("menu.size"), sizeMenu)
         let usageMenu = NSMenu()
         for m in UsageMode.allCases {
             let it = NSMenuItem(title: m.label, action: #selector(pickUsage(_:)), keyEquivalent: "")
@@ -476,41 +525,49 @@ final class AppController: NSObject, NSMenuDelegate {
             it.state = m == settings.usageMode ? .on : .off
             usageMenu.addItem(it)
         }
-        addSub(look, "Usage-Anzeige", usageMenu)
-        look.addItem(toggle("Outline & Schattierung", !settings.flat, #selector(toggleFlat)))
-        look.addItem(toggle("Karte hinter dem Buddy", settings.card, #selector(toggleCard)))
-        let shuffle = NSMenuItem(title: "Neu auswürfeln", action: #selector(shuffleLook), keyEquivalent: "")
+        addSub(look, S.t("menu.usage"), usageMenu)
+        look.addItem(toggle(S.t("menu.outline"), !settings.flat, #selector(toggleFlat)))
+        look.addItem(toggle(S.t("menu.card"), settings.card, #selector(toggleCard)))
+        let shuffle = NSMenuItem(title: S.t("menu.shuffle"), action: #selector(shuffleLook), keyEquivalent: "")
         shuffle.target = self
         look.addItem(shuffle)
-        addSub(menu, "Aussehen", look)
+        addSub(menu, S.t("menu.look"), look)
 
         // Verhalten
         let beh = NSMenu()
-        beh.addItem(toggle("Sprüche", settings.quips, #selector(toggleQuips)))
-        beh.addItem(toggle("Töne", settings.sounds, #selector(toggleSounds)))
-        beh.addItem(toggle("Cowork-Sessions abfragen", settings.pollCowork, #selector(togglePollCowork)))
-        beh.addItem(toggle("Chats abfragen", settings.pollChats, #selector(togglePollChats)))
+        beh.addItem(toggle(S.t("menu.quips"), settings.quips, #selector(toggleQuips)))
+        beh.addItem(toggle(S.t("menu.sounds"), settings.sounds, #selector(toggleSounds)))
+        beh.addItem(toggle(S.t("menu.poll.cowork"), settings.pollCowork, #selector(togglePollCowork)))
+        beh.addItem(toggle(S.t("menu.poll.chats"), settings.pollChats, #selector(togglePollChats)))
         beh.addItem(.separator())
-        let inst = NSMenuItem(title: hooks.hooksInstalled ? "Claude-Code-Hooks neu installieren…" : "Claude-Code-Hooks installieren…", action: #selector(installHooks), keyEquivalent: "")
+        let inst = NSMenuItem(title: hooks.hooksInstalled ? S.t("menu.hooks.reinstall") : S.t("menu.hooks.install"), action: #selector(installHooks), keyEquivalent: "")
         inst.target = self
         beh.addItem(inst)
-        let uninst = NSMenuItem(title: "Claude-Code-Hooks entfernen…", action: #selector(uninstallHooks), keyEquivalent: "")
+        let uninst = NSMenuItem(title: S.t("menu.hooks.remove"), action: #selector(uninstallHooks), keyEquivalent: "")
         uninst.target = self
         beh.addItem(uninst)
-        addSub(menu, "Verhalten", beh)
+        addSub(menu, S.t("menu.behavior"), beh)
 
-        menu.addItem(toggle("Beim Login starten", launchAtLogin, #selector(toggleLaunchAtLogin)))
-        let reset = NSMenuItem(title: "Position zurücksetzen", action: #selector(resetPosition), keyEquivalent: "")
+        let langMenu = NSMenu()
+        for l in Lang.allCases {
+            let it = NSMenuItem(title: l.label, action: #selector(pickLang(_:)), keyEquivalent: "")
+            it.target = self; it.representedObject = l.rawValue
+            it.state = l == settings.lang ? .on : .off
+            langMenu.addItem(it)
+        }
+        addSub(menu, S.t("menu.language"), langMenu)
+        menu.addItem(toggle(S.t("menu.login"), launchAtLogin, #selector(toggleLaunchAtLogin)))
+        let reset = NSMenuItem(title: S.t("menu.reset.pos"), action: #selector(resetPosition), keyEquivalent: "")
         reset.target = self
         menu.addItem(reset)
-        let openClaude = NSMenuItem(title: "Claude öffnen", action: #selector(openClaudeApp), keyEquivalent: "")
+        let openClaude = NSMenuItem(title: S.t("menu.open.claude"), action: #selector(openClaudeApp), keyEquivalent: "")
         openClaude.target = self
         menu.addItem(openClaude)
-        let log = NSMenuItem(title: "Event-Log anzeigen", action: #selector(showLog), keyEquivalent: "")
+        let log = NSMenuItem(title: S.t("menu.log"), action: #selector(showLog), keyEquivalent: "")
         log.target = self
         menu.addItem(log)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Buddy beenden", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: S.t("menu.quit"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
     }
@@ -557,7 +614,13 @@ final class AppController: NSObject, NSMenuDelegate {
         settings.speciesId = id; settings.lookInitialized = true
         look = settings.currentLook()
         pixelSpecies = settings.currentPixelSpecies()
-        quip("Hallo, ich bin \(settings.style == .pixel ? pixelSpecies.name : look.species.name).", seconds: 4)
+        quip("\(S.t("iam")) \(settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName).", seconds: 4)
+    }
+    @objc private func pickLang(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let l = Lang(rawValue: raw) else { return }
+        settings.lang = l
+        S.lang = l
+        quip(S.t("hello"), seconds: 3)
     }
     @objc private func pickUsage(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let m = UsageMode(rawValue: raw) else { return }
@@ -602,7 +665,7 @@ final class AppController: NSObject, NSMenuDelegate {
         }
         look = settings.currentLook()
         pixelSpecies = settings.currentPixelSpecies()
-        quip("Neu: \(settings.style == .pixel ? pixelSpecies.name : look.species.name).", seconds: 4)
+        quip("\(S.t("new")): \(settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName).", seconds: 4)
     }
     @objc private func toggleCard() { settings.card.toggle(); vm.card = settings.card }
     @objc private func toggleFlat() { settings.flat.toggle() }
@@ -627,7 +690,7 @@ final class AppController: NSObject, NSMenuDelegate {
         do {
             if launchAtLogin { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() }
         } catch {
-            alert("Login-Start konnte nicht geändert werden", "\(error)")
+            alert(S.t("alert.login"), "\(error)")
         }
     }
 
@@ -636,7 +699,7 @@ final class AppController: NSObject, NSMenuDelegate {
 
     private func runHookInstaller(uninstall: Bool) {
         guard let script = Bundle.main.path(forResource: "install-hooks", ofType: "py") else {
-            alert("Installer fehlt", "install-hooks.py liegt nicht im App-Bundle."); return
+            alert(S.t("alert.installer.missing"), S.t("alert.installer.missing.text")); return
         }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -646,10 +709,10 @@ final class AppController: NSObject, NSMenuDelegate {
         do {
             try p.run(); p.waitUntilExit()
             let text = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            alert(uninstall ? "Hooks entfernt" : "Hooks installiert",
-                  text + (uninstall ? "" : "\n\nLaufende Claude-Code-Sessions laden Hooks erst nach einem Neustart."))
+            alert(uninstall ? S.t("alert.hooks.removed") : S.t("alert.hooks.installed"),
+                  text + (uninstall ? "" : "\n\n" + S.t("alert.hooks.restart")))
         } catch {
-            alert("Installer-Fehler", "\(error)")
+            alert(S.t("alert.installer.error"), "\(error)")
         }
     }
 

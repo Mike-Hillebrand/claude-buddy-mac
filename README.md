@@ -4,16 +4,7 @@ A little pixel buddy that floats on your desktop (no window, no card) and shows 
 doing right now — across **Claude Code**, **Cowork** (cloud + local) and **claude.ai chats**.
 Optional usage strip (5h / 7d windows) as a bar or a ticker.
 
-```
- ┌───────────────────────┐
- │ website: allow Bash?  │
- └──┬────────────────────┘
-     ████████████
-     ██ ▪▪  ▪▪ ██
-   ████████████████        ● ● ●   1 needs you · 2 working
-     ████████████          5h ▓▓░░░░░░░░ 16%  7d ▓░░░░░░░░░ 11%
-     ██ ██  ██ ██
-```
+<p align="center"><img src="docs/buddy.gif" width="250" alt="Buddy cycling through sleeping, idle, thinking, working, needs-you and done"></p>
 
 Built with plain `swiftc` — no Xcode, no developer account, no 7-day signing expiry.
 
@@ -37,6 +28,7 @@ menu bar opens the menu.
 - **Style:** pixel (filled, automatic outline + bevel — default) or ASCII (terminal look, 5×12 chars).
 - **Species:** pixel: Clawd, Blob, Cat, Duck, Ghost, Robot, Penguin, Octopus, Rabbit · ASCII: 18 species.
 - **Hat, eyes, color, size** (S/M/L/XL), card behind the buddy on/off, outline & shading on/off.
+- **Language:** German or English (menu → Language); defaults to German on German systems, English elsewhere.
 - Default species / hat / eyes are rolled deterministically from your account id ("Shuffle" in the menu).
 - **Usage strip:** off · bar (5h/7d) · ticker (all windows with reset times + session summary).
 
@@ -86,7 +78,7 @@ The hooks are `async` and add no latency to Claude Code. Running sessions pick t
 ## Project layout
 
 ```
-Sources/Core/   sprites (ASCII + pixel, hats, eyes, speech bubble) + state model — Foundation only, tested
+Sources/Core/   sprites (ASCII + pixel, hats, eyes, speech bubble), localization + state model — Foundation only, tested
 Sources/App/    AppKit/SwiftUI: panel, view, menu, hook watcher, API client, settings
 hooks/          buddy-hook.sh, install-hooks.py
 Tests/          CoreTests.swift (also runs on Linux Swift)
@@ -103,7 +95,6 @@ are added automatically.
 
 ## Notes
 
-The UI text is German (that's what its author speaks to Claude in). PRs for an English toggle welcome.
 Not affiliated with Anthropic; the sprites are original pixel art.
 
 ## License

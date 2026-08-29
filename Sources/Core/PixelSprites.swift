@@ -9,6 +9,7 @@ struct PixelSpecies: Identifiable, Equatable {
     let id: String
     let name: String
     let frames: [[String]]
+    var displayName: String { S.name(id) }
     static func == (a: PixelSpecies, b: PixelSpecies) -> Bool { a.id == b.id }
 }
 

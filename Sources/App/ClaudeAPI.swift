@@ -220,10 +220,10 @@ final class ClaudeAPI {
                     if let det = s["requires_action_details_list"] as? [[String: Any]], let first = det.first {
                         let tool = (first["display_tool_name"] as? String) ?? (first["tool_name"] as? String) ?? ""
                         let desc = (first["action_description"] as? String) ?? ""
-                        action = tool.isEmpty ? desc : (desc.isEmpty ? "Erlauben: \(tool)" : "Erlauben: \(tool) · \(desc)")
+                        action = tool.isEmpty ? desc : (desc.isEmpty ? "\(S.t("permit")): \(tool)" : "\(S.t("permit")): \(tool) · \(desc)")
                     } else if let ext = s["external_metadata"] as? [String: Any], let pa = ext["pending_action"] as? [String: Any] {
                         let tool = (pa["display_tool_name"] as? String) ?? (pa["tool_name"] as? String) ?? ""
-                        if !tool.isEmpty { action = "Erlauben: \(tool)" }
+                        if !tool.isEmpty { action = "\(S.t("permit")): \(tool)" }
                     }
                     return SessionStore.APISession(
                         id: id,

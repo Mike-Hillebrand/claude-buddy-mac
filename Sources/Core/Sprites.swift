@@ -6,6 +6,7 @@ struct Species: Identifiable, Equatable {
     let id: String
     let name: String
     let frames: [[String]]   // 3 frames × 5 rows
+    var displayName: String { S.name(id) }
 
     static func == (a: Species, b: Species) -> Bool { a.id == b.id }
 }
@@ -342,15 +343,7 @@ enum EyeStyle: String, CaseIterable, Identifiable {
         case .happy: return "^"
         }
     }
-    var label: String {
-        switch self {
-        case .dot: return "Punkt"
-        case .wide: return "Groß"
-        case .sleepy: return "Müde"
-        case .sparkle: return "Funkeln"
-        case .happy: return "Happy"
-        }
-    }
+    var label: String { S.name(rawValue) }
 }
 
 enum Hat: String, CaseIterable, Identifiable {
@@ -369,19 +362,7 @@ enum Hat: String, CaseIterable, Identifiable {
         case .bow: return "><"
         }
     }
-    var label: String {
-        switch self {
-        case .none: return "Kein Hut"
-        case .tophat: return "Zylinder"
-        case .cap: return "Cap"
-        case .crown: return "Krone"
-        case .beanie: return "Beanie"
-        case .party: return "Partyhut"
-        case .halo: return "Heiligenschein"
-        case .wizard: return "Zauberhut"
-        case .bow: return "Schleife"
-        }
-    }
+    var label: String { S.name(rawValue) }
 }
 
 // MARK: - Sprite composer

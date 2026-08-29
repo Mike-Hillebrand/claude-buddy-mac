@@ -35,6 +35,7 @@ final class DragCatcherView: NSView {
     private var dragStart: NSPoint?
     private var windowStart: NSPoint?
     private var moved = false
+    private(set) var isDragging = false
 
     override var acceptsFirstResponder: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -43,6 +44,7 @@ final class DragCatcherView: NSView {
         dragStart = NSEvent.mouseLocation
         windowStart = window?.frame.origin
         moved = false
+        isDragging = true
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -56,6 +58,7 @@ final class DragCatcherView: NSView {
     override func mouseUp(with event: NSEvent) {
         if moved { panel?.onMoved?() } else { panel?.onClick?() }
         dragStart = nil; windowStart = nil; moved = false
+        isDragging = false
     }
 
     override func rightMouseDown(with event: NSEvent) {

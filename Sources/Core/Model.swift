@@ -15,12 +15,12 @@ enum PetState: Int, Comparable, CaseIterable {
 
     var label: String {
         switch self {
-        case .sleeping: return "schläft"
-        case .idle: return "idle"
-        case .ready: return "bereit"
-        case .thinking: return "denkt"
-        case .working: return "arbeitet"
-        case .attention: return "braucht dich"
+        case .sleeping: return S.t("state.sleeping")
+        case .idle: return S.t("state.idle")
+        case .ready: return S.t("state.ready")
+        case .thinking: return S.t("state.thinking")
+        case .working: return S.t("state.working")
+        case .attention: return S.t("state.attention")
         }
     }
 }
@@ -162,31 +162,31 @@ final class SessionStore {
             s.state = .thinking; s.detail = e.tool
         case "PostToolUseFailure":
             s.state = .thinking
-            addMoment(.error, "\(e.tool.isEmpty ? "Tool" : e.tool) fehlgeschlagen · \(title)")
+            addMoment(.error, "\(e.tool.isEmpty ? S.t("tool") : e.tool) \(S.t("tool.failed")) · \(title)")
         case "Notification":
             switch e.type {
             case "permission_prompt":
                 s.state = .attention; s.detail = shortPermission(e.msg)
                 addMoment(.attention, "\(title): \(s.detail)")
             case "idle_prompt", "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog":
-                s.state = .attention; s.detail = "wartet auf Input"
-                addMoment(.attention, "\(title) wartet auf dich")
+                s.state = .attention; s.detail = S.t("waiting.input")
+                addMoment(.attention, "\(title) \(S.t("waiting.you"))")
             case "agent_completed":
                 s.state = .ready; s.unread = true
-                addMoment(.done, "\(title) fertig")
+                addMoment(.done, "\(title) \(S.t("done"))")
             default:
                 break
             }
         case "Stop":
             let wasBusy = s.state == .working || s.state == .thinking
             s.state = .ready; s.unread = true; s.detail = ""
-            if wasBusy { addMoment(.done, "\(title) fertig") }
+            if wasBusy { addMoment(.done, "\(title) \(S.t("done"))") }
         case "StopFailure":
             s.state = .idle
-            addMoment(.error, "API-Fehler · \(title)")
+            addMoment(.error, "\(S.t("api.error")) · \(title)")
         case "SubagentStart":
             if s.state == .thinking || s.state == .idle { s.state = .working }
-            s.detail = e.agent.isEmpty ? "Subagent" : e.agent
+            s.detail = e.agent.isEmpty ? S.t("subagent") : e.agent
         case "SubagentStop":
             break
         case "PreCompact":
@@ -203,9 +203,9 @@ final class SessionStore {
     private func shortPermission(_ msg: String) -> String {
         // "Claude needs your permission to use Bash" → "Erlauben: Bash"
         if let r = msg.range(of: "to use ") {
-            return "Erlauben: " + msg[r.upperBound...].trimmingCharacters(in: .whitespaces)
+            return S.t("permit") + ": " + msg[r.upperBound...].trimmingCharacters(in: .whitespaces)
         }
-        return msg.isEmpty ? "Erlauben?" : msg
+        return msg.isEmpty ? S.t("permit.q") : msg
     }
 
     // MARK: API sessions (Cowork / bridge)
@@ -240,13 +240,13 @@ final class SessionStore {
             if a.workerStatus == "running" {
                 state = .working
             } else if a.workerStatus == "requires_action" {
-                state = .attention; detail = a.actionDetail.isEmpty ? "Freigabe nötig" : a.actionDetail
+                state = .attention; detail = a.actionDetail.isEmpty ? S.t("approval.needed") : a.actionDetail
             } else if a.bucket == "blocked" && a.unread && age < attentionVisibleFor {
-                state = .attention; detail = "wartet auf Input"
+                state = .attention; detail = S.t("waiting.input")
             } else if (a.bucket == "review_ready" || a.bucket == "completed") && a.unread && age < readyVisibleFor {
                 state = .ready
             } else if a.bucket == "failed" && a.unread && age < readyVisibleFor {
-                state = .ready; detail = "fehlgeschlagen"
+                state = .ready; detail = S.t("failed")
             }
             guard let newState = state else { continue }
             seen.insert(id)
@@ -256,7 +256,7 @@ final class SessionStore {
                 s.state = newState; s.detail = detail; s.updated = max(a.lastEvent, s.updated); s.unread = a.unread; s.title = title
                 sessions[id] = s
                 if old == .working && newState == .ready {
-                    addMoment(detail == "fehlgeschlagen" ? .error : .done, "\(title) \(detail == "fehlgeschlagen" ? "fehlgeschlagen" : "fertig")")
+                    addMoment(detail == S.t("failed") ? .error : .done, "\(title) \(detail == S.t("failed") ? S.t("failed") : S.t("done"))")
                 } else if old != .attention && newState == .attention {
                     addMoment(.attention, "\(title): \(detail)")
                 }
@@ -290,11 +290,11 @@ final class SessionStore {
             guard t.timeIntervalSince(c.updated) < chatWindow else { continue }
             var state: PetState? = nil
             var detail = ""
-            if c.needsInput { state = .attention; detail = "wartet auf Input" }
+            if c.needsInput { state = .attention; detail = S.t("waiting.input") }
             else if let ls = c.liveStatus, !ls.isEmpty { state = .working; detail = ls }
             guard let newState = state else { continue }
             seen.insert(id)
-            let title = c.title.isEmpty ? "Chat" : c.title
+            let title = c.title.isEmpty ? S.t("chat") : c.title
             if var s = sessions[id] {
                 let old = s.state
                 s.state = newState; s.detail = detail; s.updated = c.updated; s.title = title
@@ -325,37 +325,6 @@ final class SessionStore {
     }
 
     func removeAll() { sessions.removeAll() }
-}
-
-// MARK: - Quips (idle chatter)
-
-enum Quips {
-    static let idle: [String] = [
-        "Alles ruhig. Zu ruhig.",
-        "Ich warte. Geduldig. Meistens.",
-        "Kaffee wäre jetzt gut.",
-        "Keine Session, kein Stress.",
-        "Soll ich was kaputt machen? Nein? Ok.",
-        "Pixel sind auch nur Zeichen.",
-        "Ich hab da eine Idee. Später.",
-        "Tab hier, Tab da. Ich zähl mit.",
-        "Deployen wir heute noch?",
-        "Ich bin 12 Zeichen breit. Reicht.",
-        "Du starrst mich an. Ich dich auch.",
-        "Fokus. Du schaffst das.",
-        "Wenn's brennt, hüpf ich.",
-    ]
-    static let working: [String] = [
-        "läuft…", "am Werkeln", "gleich", "tippt…", "gräbt…",
-    ]
-    static let done: [String] = [
-        "fertig!", "erledigt", "done", "bam", "läuft ✓",
-    ]
-
-    static func pick(_ list: [String], seed: Int) -> String {
-        guard !list.isEmpty else { return "" }
-        return list[abs(seed) % list.count]
-    }
 }
 
 // MARK: - Deterministic default look (FNV-1a + mulberry32 style mixing)
