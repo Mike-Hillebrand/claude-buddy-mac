@@ -2,6 +2,7 @@
 # Builds Buddy.app with plain swiftc (no Xcode needed, Command Line Tools are enough).
 #   ./build.sh            → build/Buddy.app
 #   ./build.sh install    → build + copy to /Applications + (re)launch
+#   ./build.sh release    → build + zip → build/Buddy-<version>.zip (for GitHub Releases)
 set -e
 cd "$(dirname "$0")"
 
@@ -51,7 +52,18 @@ EOF
 
 cp hooks/buddy-hook.sh hooks/install-hooks.py "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/buddy-hook.sh"
-[ -f assets/AppIcon.icns ] && cp assets/AppIcon.icns "$APP/Contents/Resources/"
+
+# App icon: rendered from Resources/AppIcon-1024.png at build time (iconutil ships with macOS).
+if [ -f Resources/AppIcon-1024.png ] && command -v iconutil >/dev/null; then
+  ICONSET="$BUILD_DIR/AppIcon.iconset"
+  rm -rf "$ICONSET"; mkdir -p "$ICONSET"
+  for s in 16 32 128 256 512; do
+    sips -z $s $s Resources/AppIcon-1024.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+    d=$((s*2))
+    sips -z $d $d Resources/AppIcon-1024.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns" && rm -rf "$ICONSET"
+fi
 
 echo "→ signing (ad-hoc)"
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1
@@ -59,11 +71,19 @@ xattr -cr "$APP" 2>/dev/null || true
 
 echo "✓ built $APP"
 
-if [ "$1" = "install" ]; then
-  echo "→ installing to /Applications"
-  pkill -x "$APP_NAME" 2>/dev/null || true
-  rm -rf "/Applications/$APP_NAME.app"
-  cp -R "$APP" "/Applications/$APP_NAME.app"
-  open "/Applications/$APP_NAME.app"
-  echo "✓ launched /Applications/$APP_NAME.app"
-fi
+case "$1" in
+  install)
+    echo "→ installing to /Applications"
+    pkill -x "$APP_NAME" 2>/dev/null || true
+    rm -rf "/Applications/$APP_NAME.app"
+    cp -R "$APP" "/Applications/$APP_NAME.app"
+    open "/Applications/$APP_NAME.app"
+    echo "✓ launched /Applications/$APP_NAME.app"
+    ;;
+  release)
+    ZIP="$BUILD_DIR/$APP_NAME-$VERSION-$ARCH.zip"
+    rm -f "$ZIP"
+    ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+    echo "✓ release archive $ZIP"
+    ;;
+esac

@@ -49,6 +49,7 @@ struct TrackedSession: Identifiable, Equatable {
     var detail: String        // tool name, action description, …
     var updated: Date
     var unread: Bool = false
+    var path: String = ""     // Claude Code: working directory (for "reveal in Finder")
 }
 
 /// A transient thing the pet should react to (celebrate, complain, …).
@@ -149,7 +150,7 @@ final class SessionStore {
         let title = e.cwd.isEmpty ? "Claude Code" : (e.cwd as NSString).lastPathComponent
         var s = sessions[id] ?? TrackedSession(id: id, source: .code, title: title, state: .idle, detail: "", updated: e.ts)
         s.updated = e.ts
-        if !e.cwd.isEmpty { s.title = title }
+        if !e.cwd.isEmpty { s.title = title; s.path = e.cwd }
 
         switch e.event {
         case "SessionStart":

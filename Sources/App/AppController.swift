@@ -57,6 +57,10 @@ final class AppController: NSObject, NSMenuDelegate {
         catcher.addSubview(hosting)
 
         panel.onClick = { [weak self] in self?.petTheBuddy() }
+        panel.onDoubleClick = { [weak self] in
+            guard let self = self, let f = self.store.focus else { return }
+            self.open(session: f, target: self.settings.openTarget)
+        }
         panel.onRightClick = { [weak self] ev in self?.showContextMenu(ev) }
         panel.onMoved = { [weak self] in
             guard let self = self else { return }
@@ -455,6 +459,16 @@ final class AppController: NSObject, NSMenuDelegate {
                 it.target = self
                 it.representedObject = s.id
                 menu.addItem(it)
+                // ⌥ shows the other target (browser ↔ app); local Claude Code sessions reveal their folder.
+                let altTitle: String
+                if s.id.hasPrefix("hook:") { altTitle = "    ↳ " + S.t("menu.reveal") }
+                else { altTitle = "    ↳ " + S.t(settings.openTarget == .app ? "menu.open.alt.browser" : "menu.open.alt.app") }
+                let alt = NSMenuItem(title: altTitle, action: #selector(openSessionAlt(_:)), keyEquivalent: "")
+                alt.target = self
+                alt.representedObject = s.id
+                alt.isAlternate = true
+                alt.keyEquivalentModifierMask = .option
+                menu.addItem(alt)
             }
         }
         menu.addItem(.separator())
@@ -548,6 +562,14 @@ final class AppController: NSObject, NSMenuDelegate {
         beh.addItem(uninst)
         addSub(menu, S.t("menu.behavior"), beh)
 
+        let openMenu = NSMenu()
+        for t in OpenTarget.allCases {
+            let it = NSMenuItem(title: t.label, action: #selector(pickOpenTarget(_:)), keyEquivalent: "")
+            it.target = self; it.representedObject = t.rawValue
+            it.state = t == settings.openTarget ? .on : .off
+            openMenu.addItem(it)
+        }
+        addSub(menu, S.t("menu.open.in"), openMenu)
         let langMenu = NSMenu()
         for l in Lang.allCases {
             let it = NSMenuItem(title: l.label, action: #selector(pickLang(_:)), keyEquivalent: "")
@@ -598,9 +620,43 @@ final class AppController: NSObject, NSMenuDelegate {
     // MARK: Actions
 
     @objc private func openSession(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        if id.hasPrefix("api:") || id.hasPrefix("chat:") { openClaudeApp() }
-        else { NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Utilities/Terminal.app")) }
+        guard let id = sender.representedObject as? String, let s = store.sessions[id] else { return }
+        open(session: s, target: settings.openTarget)
+    }
+    @objc private func openSessionAlt(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let s = store.sessions[id] else { return }
+        open(session: s, target: settings.openTarget == .app ? .browser : .app)
+    }
+
+    /// Deep link for a tracked session. Cowork/bridge ids are `cse_<suffix>`; the web/app path uses `session_<suffix>`.
+    func link(for s: TrackedSession, target: OpenTarget) -> URL? {
+        let base = target == .app ? "claude://claude.ai" : "https://claude.ai"
+        if s.id.hasPrefix("api:") {
+            var raw = String(s.id.dropFirst(4))
+            if raw.hasPrefix("cse_") { raw = "session_" + raw.dropFirst(4) }
+            return URL(string: "\(base)/code/\(raw)")
+        }
+        if s.id.hasPrefix("chat:") {
+            return URL(string: "\(base)/chat/\(s.id.dropFirst(5))")
+        }
+        return nil
+    }
+
+    private func open(session s: TrackedSession, target: OpenTarget) {
+        if s.id.hasPrefix("hook:") {
+            // Local Claude Code session: no URL to open — reveal its project folder instead.
+            if !s.path.isEmpty, FileManager.default.fileExists(atPath: s.path) {
+                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: s.path)
+            } else {
+                openClaudeApp()
+            }
+            return
+        }
+        if let url = link(for: s, target: target) {
+            NSWorkspace.shared.open(url)
+        } else {
+            openClaudeApp()
+        }
     }
 
     @objc private func openClaudeApp() {
@@ -615,6 +671,10 @@ final class AppController: NSObject, NSMenuDelegate {
         look = settings.currentLook()
         pixelSpecies = settings.currentPixelSpecies()
         quip("\(S.t("iam")) \(settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName).", seconds: 4)
+    }
+    @objc private func pickOpenTarget(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let t = OpenTarget(rawValue: raw) else { return }
+        settings.openTarget = t
     }
     @objc private func pickLang(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let l = Lang(rawValue: raw) else { return }

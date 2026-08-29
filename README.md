@@ -23,6 +23,10 @@ errors, hearts when you click it, breathing / blinking / the occasional wink whi
 wiggle while working. Drag it anywhere (position is remembered). Right-click or the paw icon in the
 menu bar opens the menu.
 
+Clicking a session in the menu opens it — Cowork sessions and chats in the Claude app (or in the
+browser, configurable; hold ⌥ for the other one), local Claude Code sessions reveal their project
+folder. Double-click the buddy to open whatever it is currently reacting to.
+
 ## Look
 
 - **Style:** pixel (filled, automatic outline + bevel — default) or ASCII (terminal look, 5×12 chars).
@@ -50,19 +54,31 @@ those requests to claude.ai / api.anthropic.com with your own session cookie.
 
 ## Requirements
 
-- macOS 14+ (Apple Silicon or Intel)
+- macOS 14+ (release zips are Apple Silicon; Intel builds from source)
 - Xcode Command Line Tools (`xcode-select --install`) — that's all, no Xcode
 - Claude desktop app, logged in (for Cowork / chat / usage)
 - Claude Code (for the hooks)
 
-## Build & install
+## Install
+
+**Download:** grab `Buddy-<version>-arm64.zip` from [Releases](https://github.com/Mike-Hillebrand/claude-buddy-mac/releases),
+unzip, move `Buddy.app` to `/Applications`. The build is ad-hoc signed (no Apple developer account),
+so Gatekeeper will refuse it once. Clear the quarantine flag and it runs:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Buddy.app
+open /Applications/Buddy.app
+```
+
+**Or build it yourself** (Command Line Tools are enough):
 
 ```sh
 ./build.sh            # → build/Buddy.app
 ./build.sh install    # build, copy to /Applications, (re)launch
+./build.sh release    # build + zip for a release
 ```
 
-Ad-hoc signed. "Launch at login" is in the menu (SMAppService).
+"Launch at login" is in the menu (SMAppService).
 
 ## Hooks
 
@@ -80,6 +96,7 @@ The hooks are `async` and add no latency to Claude Code. Running sessions pick t
 ```
 Sources/Core/   sprites (ASCII + pixel, hats, eyes, speech bubble), localization + state model — Foundation only, tested
 Sources/App/    AppKit/SwiftUI: panel, view, menu, hook watcher, API client, settings
+Resources/      app icon (rendered from the Clawd sprite; .icns is generated at build time)
 hooks/          buddy-hook.sh, install-hooks.py
 Tests/          CoreTests.swift (also runs on Linux Swift)
 ```

@@ -34,6 +34,12 @@ enum UsageMode: String, CaseIterable, Identifiable {
     var label: String { S.t("usage." + rawValue) }
 }
 
+enum OpenTarget: String, CaseIterable, Identifiable {
+    case app, browser
+    var id: String { rawValue }
+    var label: String { S.t("open." + rawValue) }
+}
+
 enum SpriteStyle: String, CaseIterable, Identifiable {
     case pixel, ascii
     var id: String { rawValue }
@@ -64,6 +70,10 @@ final class Settings {
             return pref.hasPrefix("de") ? .de : .en
         }
         set { d.set(newValue.rawValue, forKey: "lang") }
+    }
+    var openTarget: OpenTarget {
+        get { OpenTarget(rawValue: d.string(forKey: "openIn") ?? "") ?? .app }
+        set { d.set(newValue.rawValue, forKey: "openIn") }
     }
     var usageMode: UsageMode {
         get { UsageMode(rawValue: d.string(forKey: "usage") ?? "") ?? .bar }

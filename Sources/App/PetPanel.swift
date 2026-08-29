@@ -4,6 +4,7 @@ import SwiftUI
 /// Borderless, transparent, always-on-top, non-activating panel that hosts the pet.
 final class PetPanel: NSPanel {
     var onClick: (() -> Void)?
+    var onDoubleClick: (() -> Void)?
     var onRightClick: ((NSEvent) -> Void)?
     var onMoved: (() -> Void)?
 
@@ -56,7 +57,9 @@ final class DragCatcherView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if moved { panel?.onMoved?() } else { panel?.onClick?() }
+        if moved { panel?.onMoved?() }
+        else if event.clickCount == 2 { panel?.onDoubleClick?() }
+        else { panel?.onClick?() }
         dragStart = nil; windowStart = nil; moved = false
         isDragging = false
     }
