@@ -93,6 +93,10 @@ Core tests: copy `Tests/CoreTests.swift` to `main.swift`, then
 `l` light, `w` white, `d` dark, `a` accent (yellow), `e` eye slot (2×2 or 2×3). Outline and bevel
 are added automatically.
 
+## Authors
+
+[Mike Hillebrand](https://github.com/Mike-Hillebrand) · [Mike Hillebrand Media](https://github.com/MikeHillebrandMedia) — built together with Claude.
+
 ## Notes
 
 Not affiliated with Anthropic; the sprites are original pixel art.
