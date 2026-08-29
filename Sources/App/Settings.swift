@@ -109,6 +109,8 @@ final class Settings {
     var flat: Bool { get { d.bool(forKey: "flat") } set { d.set(newValue, forKey: "flat") } }
     var sounds: Bool { get { d.bool(forKey: "sounds") } set { d.set(newValue, forKey: "sounds") } }
     var quips: Bool { get { d.bool(forKey: "quips") } set { d.set(newValue, forKey: "quips") } }
+    /// Walk along the edges of the screen (never across it).
+    var wander: Bool { get { d.bool(forKey: "wander") } set { d.set(newValue, forKey: "wander") } }
     var pollCowork: Bool { get { d.bool(forKey: "pollCowork") } set { d.set(newValue, forKey: "pollCowork") } }
     var pollChats: Bool { get { d.bool(forKey: "pollChats") } set { d.set(newValue, forKey: "pollChats") } }
 

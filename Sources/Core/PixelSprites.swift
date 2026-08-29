@@ -9,6 +9,7 @@ struct PixelSpecies: Identifiable, Equatable {
     let id: String
     let name: String
     let frames: [[String]]
+    var walk: [[String]] = []          // optional walk cycle (legs); falls back to `frames`
     var displayName: String { S.name(id) }
     static func == (a: PixelSpecies, b: PixelSpecies) -> Bool { a.id == b.id }
 }
@@ -71,6 +72,36 @@ enum PixelBank {
              "..##.##..##.##..",
              "..##.##..##.##..",
              "..##.##..##.##..",
+             "................"],
+        ], walk: [
+            // Marching: leg pairs alternate (1+3 lifted, then 2+4), arms swing along.
+            ["................",
+             "................",
+             "..##s#########..",
+             "..##s#########..",
+             "####see###ee##..",
+             "#####ee###ee##..",
+             "#####ee###ee####",
+             "..##############",
+             "..##############",
+             "..############..",
+             "..##.##..##.##..",
+             "..##.##..##.##..",
+             ".....##.....##..",
+             "................"],
+            ["................",
+             "................",
+             "..##s#########..",
+             "..##s#########..",
+             "..##see###ee####",
+             "..###ee###ee####",
+             "#####ee###ee####",
+             "##############..",
+             "##############..",
+             "..############..",
+             "..##.##..##.##..",
+             "..##.##..##.##..",
+             "..##.....##.....",
              "................"],
         ]),
         PixelSpecies(id: "blob", name: "Blob", frames: [
@@ -344,8 +375,8 @@ enum PixelRenderer {
     /// Returns pixels in grid coordinates. y may be negative (hat rows above the sprite).
     /// `wink` closes one eye (0 = leftmost) on top of the regular style; `flat` skips outline + bevel.
     static func render(species: PixelSpecies, frame: Int, hat: Hat, eyes: EyeStyle, eyeOverride: Character? = nil,
-                       wink: Int? = nil, flat: Bool = false) -> [Pixel] {
-        let frames = species.frames
+                       wink: Int? = nil, flat: Bool = false, walking: Bool = false) -> [Pixel] {
+        let frames = (walking && !species.walk.isEmpty) ? species.walk : species.frames
         let grid = frames[((frame % frames.count) + frames.count) % frames.count].map { Array($0) }
         var out: [Pixel] = []
         var eyeVisited = Set<Int>()

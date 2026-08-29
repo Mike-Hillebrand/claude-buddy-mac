@@ -27,6 +27,11 @@ Clicking a session in the menu opens it — Cowork sessions and chats in the Cla
 browser, configurable; hold ⌥ for the other one), local Claude Code sessions reveal their project
 folder. Double-click the buddy to open whatever it is currently reacting to.
 
+Extras: **wander mode** (Behavior menu) lets the buddy stroll along the edges of the screen — never
+across it — with a proper walk cycle, pausing when Claude needs you or your cursor comes close.
+And it plays **tic-tac-toe** (menu → 🎮): you are X, it thinks for a moment, gloats when it wins and
+sulks when it loses. It plays well but not perfectly, so you can beat it.
+
 ## Look
 
 - **Style:** pixel (filled, automatic outline + bevel — default) or ASCII (terminal look, 5×12 chars).

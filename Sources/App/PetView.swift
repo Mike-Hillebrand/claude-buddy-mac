@@ -22,6 +22,8 @@ final class PetViewModel: ObservableObject {
     @Published var floatUp = false
     @Published var jump = false
     @Published var breath = false
+    @Published var walking = false
+    @Published var facingLeft = false
     @Published var wobble: CGFloat = 0
     @Published var state: PetState = .sleeping
     @Published var sessions: [TrackedSession] = []
@@ -106,7 +108,7 @@ struct PetView: View {
             bubbleView
             ZStack(alignment: .topLeading) {
                 spriteView
-                    .offset(x: vm.wobble, y: vm.jump ? -6 : 0)
+                    .offset(x: vm.wobble, y: vm.jump ? -6 : (vm.walking && vm.breath ? -2 : 0))
                     .animation(.spring(response: 0.25, dampingFraction: 0.45), value: vm.jump)
                     .animation(.easeInOut(duration: 0.12), value: vm.wobble)
                 if !vm.floatText.isEmpty {
@@ -177,7 +179,8 @@ struct PetView: View {
                 let c = vm.cell
                 let base = vm.theme.color
                 for p in vm.pixels {
-                    let rect = CGRect(x: CGFloat(p.x + 1) * c, y: CGFloat(p.y + PixelBank.hatRows + 1) * c, width: c, height: c)
+                    let col = vm.facingLeft ? CGFloat(PixelBank.cols - p.x) : CGFloat(p.x + 1)
+                    let rect = CGRect(x: col * c, y: CGFloat(p.y + PixelBank.hatRows + 1) * c, width: c, height: c)
                     ctx.fill(Path(rect), with: .color(pixelColor(p.kind, base: base)))
                 }
             }

@@ -113,6 +113,14 @@ for sp in PixelBank.all {
         let eyes = f.joined().filter { $0 == "e" }.count
         check(eyes == 8 || eyes == 4 || eyes == 12, "pixel \(sp.id) f\(fi): expected 2×2 eye slots, got \(eyes) cells")
     }
+    for (fi, f) in sp.walk.enumerated() {
+        check(f.count == PixelBank.rows && f.allSatisfy { $0.count == PixelBank.cols }, "pixel \(sp.id) walk f\(fi): geometry")
+    }
+    if !sp.walk.isEmpty {
+        let w0 = PixelRenderer.render(species: sp, frame: 0, hat: .none, eyes: .dot, walking: true)
+        let w1 = PixelRenderer.render(species: sp, frame: 1, hat: .none, eyes: .dot, walking: true)
+        check(w0 != w1, "pixel \(sp.id): walk frames differ")
+    }
     for hat in Hat.allCases {
         for ov: Character? in [nil, "-", "O", "^", "x"] {
             let px = PixelRenderer.render(species: sp, frame: 0, hat: hat, eyes: .dot, eyeOverride: ov)
@@ -142,6 +150,29 @@ for sp in PixelBank.all {
     print("[\(sp.id)]")
     for row in canvas { print("|" + row.joined() + "|") }
 }
+
+// 8c. Tic-tac-toe: perfect play never loses against random play; imperfect play stays legal.
+var rngState: UInt64 = 42
+func rnd() -> Double { rngState = rngState &* 6364136223846793005 &+ 1442695040888963407; return Double(rngState >> 11) / Double(1 << 53) }
+var buddyLosses = 0, buddyWins = 0, ttdraws = 0
+for g in 0..<300 {
+    var t = TicTacToe(); t.reset(starter: g % 2 == 0 ? .x : .o)
+    while !t.isOver {
+        if t.turn == .o { t.play(t.bestMove()!) }
+        else { let f = t.freeCells; t.play(f[Int(rnd() * Double(f.count)) % f.count]) }
+    }
+    switch t.outcome { case .win(.o): buddyWins += 1; case .win(.x): buddyLosses += 1; case .draw: ttdraws += 1; default: break }
+}
+check(buddyLosses == 0, "perfect play lost \(buddyLosses) games")
+check(buddyWins > 0 && ttdraws > 0, "sanity: wins \(buddyWins) draws \(ttdraws)")
+var t2 = TicTacToe(); t2.play(0); t2.play(4)
+check(t2.turn == .x && t2.freeCells.count == 7, "turn order")
+check(!t2.play(0), "illegal move rejected")
+for _ in 0..<50 { let m = t2.move(skill: 0.0, random: rnd); check(m != nil && t2.cells[m!] == nil, "random move legal") }
+var t3 = TicTacToe(); t3.play(0); t3.play(3); t3.play(1); t3.play(4)   // X: 0,1 → X must block/win at 2
+check(t3.bestMove() == 2, "wins when possible, got \(String(describing: t3.bestMove()))")
+var t4 = TicTacToe(); t4.play(0); t4.play(4); t4.play(1)               // O to move, must block 2
+check(t4.bestMove() == 2, "blocks the threat, got \(String(describing: t4.bestMove()))")
 
 // 9. Print a gallery for eyeballing.
 print("\n=== Gallery (frame 0, own eyes, hat as generated) ===")

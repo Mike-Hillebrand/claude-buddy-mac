@@ -29,6 +29,21 @@ final class AppController: NSObject, NSMenuDelegate {
     private var usage: ClaudeAPI.Usage?
     private let bg = DispatchQueue(label: "buddy.api", qos: .utility)
 
+    // Tic-tac-toe
+    private var gamePanel: GamePanel?
+    private let gameVM = GameViewModel()
+    private var gameTimer: Timer?
+
+    // Wandering along the screen edges
+    private var wanderTimer: Timer?
+    private var wanderDir: CGFloat = 1            // +1: bottom→right→top→left (counter-clockwise), -1: reverse
+    private var wanderT: CGFloat = 0              // position along the perimeter
+    private var wanderResting = true
+    private var wanderPhaseUntil = Date.distantPast
+    private var wanderNeedsProject = true
+    private var wanderRectCache = NSRect.zero
+    private var wanderLastTick = Date()
+
     override init() {
         look = settings.currentLook()
         pixelSpecies = settings.currentPixelSpecies()
@@ -65,7 +80,7 @@ final class AppController: NSObject, NSMenuDelegate {
         panel.onMoved = { [weak self] in
             guard let self = self else { return }
             self.settings.panelOrigin = self.panel.frame.origin
-            NSLog("Buddy: moved to %@", NSStringFromPoint(self.panel.frame.origin))
+            self.wanderNeedsProject = true
         }
         placePanel()
         panel.orderFrontRegardless()
@@ -89,6 +104,122 @@ final class AppController: NSObject, NSMenuDelegate {
 
         quip(S.t("hello"), seconds: 4)
         onTick()
+        if settings.wander { startWander() }
+        if CommandLine.arguments.contains("--game") { openGame() }
+    }
+
+    // MARK: Wandering (edges only, never across the screen)
+
+    private func startWander() {
+        wanderTimer?.invalidate()
+        wanderNeedsProject = true
+        wanderResting = true
+        wanderPhaseUntil = Date().addingTimeInterval(2)
+        wanderLastTick = Date()
+        wanderTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in self?.wanderStep() }
+    }
+
+    private func stopWander() {
+        wanderTimer?.invalidate(); wanderTimer = nil
+        vm.walking = false
+        vm.facingLeft = false
+        settings.panelOrigin = panel.frame.origin
+    }
+
+    /// Rectangle of allowed panel origins: the panel hugs the visible frame of the screen it is on.
+    private func wanderRect() -> NSRect {
+        let center = NSPoint(x: panel.frame.midX, y: panel.frame.midY)
+        let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.main ?? NSScreen.screens[0]
+        let vis = screen.visibleFrame
+        let m: CGFloat = 6
+        let size = panel.frame.size
+        let visibleW = size.width - 60          // panel has 60 px of transparent slack on the right
+        return NSRect(x: vis.minX + m, y: vis.minY + m,
+                      width: max(1, vis.width - visibleW - 2 * m), height: max(1, vis.height - size.height - 2 * m))
+    }
+
+    private func perimeterPoint(_ t: CGFloat, in r: NSRect) -> NSPoint {
+        let W = r.width, H = r.height, P = 2 * (W + H)
+        var u = t.truncatingRemainder(dividingBy: P); if u < 0 { u += P }
+        if u < W { return NSPoint(x: r.minX + u, y: r.minY) }                       // bottom edge →
+        u -= W
+        if u < H { return NSPoint(x: r.maxX, y: r.minY + u) }                       // right edge ↑
+        u -= H
+        if u < W { return NSPoint(x: r.maxX - u, y: r.maxY) }                       // top edge ←
+        u -= W
+        return NSPoint(x: r.minX, y: r.maxY - u)                                    // left edge ↓
+    }
+
+    /// Nearest perimeter parameter for a point (projects onto the four edges).
+    private func project(_ p: NSPoint, onto r: NSRect) -> CGFloat {
+        let W = r.width, H = r.height
+        let x = min(max(p.x, r.minX), r.maxX), y = min(max(p.y, r.minY), r.maxY)
+        let candidates: [(CGFloat, CGFloat)] = [
+            (abs(p.y - r.minY), x - r.minX),                    // bottom
+            (abs(p.x - r.maxX), W + (y - r.minY)),              // right
+            (abs(p.y - r.maxY), W + H + (r.maxX - x)),          // top
+            (abs(p.x - r.minX), 2 * W + H + (r.maxY - y)),      // left
+        ]
+        return candidates.min { $0.0 < $1.0 }!.1
+    }
+
+    private func wanderStep() {
+        guard settings.wander, let panel = panel, let catcher = panel.contentView as? DragCatcherView else { return }
+        let now = Date()
+        let dt = CGFloat(min(0.1, now.timeIntervalSince(wanderLastTick)))
+        wanderLastTick = now
+        if catcher.isDragging { wanderNeedsProject = true; setWalking(false); return }
+
+        // Stay put when Claude needs you, right after a reaction, or when the cursor is close.
+        let busy = store.globalState == .attention || !store.recentMoments(within: 3).isEmpty || gamePanel?.isVisible == true
+        let near = panel.frame.insetBy(dx: -30, dy: -30).contains(NSEvent.mouseLocation)
+        if busy || near { setWalking(false); return }
+
+        if now >= wanderPhaseUntil {
+            if wanderResting {
+                wanderResting = false
+                wanderPhaseUntil = now.addingTimeInterval(Double.random(in: 5...14))
+                if Double.random(in: 0..<1) < 0.3 { wanderDir *= -1 }
+            } else {
+                wanderResting = true
+                wanderPhaseUntil = now.addingTimeInterval(Double.random(in: 6...20))
+                settings.panelOrigin = panel.frame.origin
+            }
+        }
+        if wanderResting { setWalking(false); return }
+
+        let rect = wanderRect()
+        if rect != wanderRectCache { wanderRectCache = rect; wanderNeedsProject = true }
+        let speed = max(24, vm.cell * 4.5) * dt
+        let origin = panel.frame.origin
+
+        if wanderNeedsProject {
+            // Walk to the nearest point of the perimeter first (e.g. after a drag), then follow it.
+            wanderT = project(origin, onto: rect)
+            let target = perimeterPoint(wanderT, in: rect)
+            let dx = target.x - origin.x, dy = target.y - origin.y
+            let dist = sqrt(dx * dx + dy * dy)
+            if dist <= speed {
+                panel.setFrameOrigin(target)
+                wanderNeedsProject = false
+            } else {
+                panel.setFrameOrigin(NSPoint(x: origin.x + dx / dist * speed, y: origin.y + dy / dist * speed))
+                if abs(dx) > 0.5 { vm.facingLeft = dx < 0 }
+            }
+            setWalking(true)
+            return
+        }
+
+        wanderT += wanderDir * speed
+        let next = perimeterPoint(wanderT, in: rect)
+        let dx = next.x - origin.x
+        if abs(dx) > 0.2 { vm.facingLeft = dx < 0 }
+        panel.setFrameOrigin(next)
+        setWalking(true)
+    }
+
+    private func setWalking(_ on: Bool) {
+        if vm.walking != on { vm.walking = on }
     }
 
     private func panelSize() -> NSSize {
@@ -197,22 +328,23 @@ final class AppController: NSObject, NSMenuDelegate {
         else if state == .sleeping { eye = "-" }
         else if tick % 16 == 0 { eye = "-" }   // blink
         if settings.style == .pixel {
-            let n = max(1, pixelSpecies.frames.count)
+            let walking = vm.walking
+            let n = max(1, walking && !pixelSpecies.walk.isEmpty ? pixelSpecies.walk.count : pixelSpecies.frames.count)
             let frame: Int
-            if state == .working || state == .thinking {
-                frame = tick % n                                   // busy: continuous wiggle
+            if walking || state == .working || state == .thinking {
+                frame = tick % n                                   // busy/walking: continuous cycle
             } else {
                 let phase = (tick / 2) % (n + 5)                   // idle: short wiggle burst, then rest
                 frame = phase < n ? phase : 0
             }
             let wink: Int? = (eye == nil && tick % 44 == 22) ? 0 : nil   // occasional wink with the left eye
             let px = PixelRenderer.render(species: pixelSpecies, frame: frame, hat: look.hat, eyes: look.eyes,
-                                          eyeOverride: eye, wink: wink, flat: settings.flat)
+                                          eyeOverride: eye, wink: wink, flat: settings.flat, walking: walking)
             if px != vm.pixels { vm.pixels = px }
             let breath = (tick / 2) % 2 == 0
             if breath != vm.breath { vm.breath = breath }
         } else {
-            let frame = state == .working ? tick % 3 : (tick / 2) % 3
+            let frame = (state == .working || vm.walking) ? tick % 3 : (tick / 2) % 3
             let rows = SpriteComposer.render(look: look, frame: frame, eyeOverride: eye)
             if rows != vm.rows { vm.rows = rows }
         }
@@ -472,6 +604,10 @@ final class AppController: NSObject, NSMenuDelegate {
             }
         }
         menu.addItem(.separator())
+        let ttt = NSMenuItem(title: "🎮 " + S.t("menu.ttt"), action: #selector(openGame), keyEquivalent: "")
+        ttt.target = self
+        menu.addItem(ttt)
+        menu.addItem(.separator())
 
         // Aussehen
         let look = NSMenu()
@@ -549,6 +685,7 @@ final class AppController: NSObject, NSMenuDelegate {
 
         // Verhalten
         let beh = NSMenu()
+        beh.addItem(toggle(S.t("menu.wander"), settings.wander, #selector(toggleWander)))
         beh.addItem(toggle(S.t("menu.quips"), settings.quips, #selector(toggleQuips)))
         beh.addItem(toggle(S.t("menu.sounds"), settings.sounds, #selector(toggleSounds)))
         beh.addItem(toggle(S.t("menu.poll.cowork"), settings.pollCowork, #selector(togglePollCowork)))
@@ -728,6 +865,111 @@ final class AppController: NSObject, NSMenuDelegate {
         quip("\(S.t("new")): \(settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName).", seconds: 4)
     }
     @objc private func toggleCard() { settings.card.toggle(); vm.card = settings.card }
+    // MARK: Tic-tac-toe
+
+    @objc private func openGame() {
+        if gamePanel == nil {
+            let gp = GamePanel(contentRect: NSRect(x: 0, y: 0, width: 270, height: 330))
+            let hosting = NSHostingView(rootView: GameView(vm: gameVM))
+            hosting.frame = gp.contentView!.bounds
+            hosting.autoresizingMask = [.width, .height]
+            gp.contentView = hosting
+            gp.setContentSize(hosting.fittingSize)
+            gameVM.onCell = { [weak self] i in self?.humanMove(i) }
+            gameVM.onNew = { [weak self] in self?.newGame(starter: .x) }
+            gameVM.onClose = { [weak self] in self?.closeGame() }
+            gamePanel = gp
+        }
+        gameVM.theme = settings.theme
+        guard let gp = gamePanel else { return }
+        // Next to the buddy: right side if there is room, otherwise left; bottom-aligned with the sprite.
+        let pf = panel.frame
+        let screen = NSScreen.screens.first { $0.frame.intersects(pf) } ?? NSScreen.main
+        let vis = screen?.visibleFrame ?? pf
+        var x = pf.minX + (pf.width - 60) + 8
+        if x + gp.frame.width > vis.maxX { x = pf.minX - gp.frame.width - 8 }
+        x = max(vis.minX + 4, x)
+        let y = min(max(pf.minY, vis.minY + 4), vis.maxY - gp.frame.height - 4)
+        gp.setFrameOrigin(NSPoint(x: x, y: y))
+        gp.orderFrontRegardless()
+        newGame(starter: .x)
+    }
+
+    private func closeGame() {
+        gameTimer?.invalidate(); gameTimer = nil
+        gamePanel?.orderOut(nil)
+    }
+
+    private func newGame(starter: TicTacToe.Player) {
+        gameTimer?.invalidate(); gameTimer = nil
+        gameVM.game.reset(starter: starter)
+        gameVM.buddyThinking = false
+        if starter == .o {
+            gameVM.message = S.t("ttt.mystart")
+            quip(S.t("ttt.bubble.start"), seconds: 2)
+            scheduleBuddyMove()
+        } else {
+            gameVM.message = S.t("ttt.yourturn")
+            quip(S.t("ttt.bubble.start"), seconds: 2)
+        }
+    }
+
+    private func humanMove(_ i: Int) {
+        guard gameVM.game.turn == .x, !gameVM.buddyThinking, gameVM.game.play(i) else { return }
+        if finishIfOver() { return }
+        scheduleBuddyMove()
+    }
+
+    private func scheduleBuddyMove() {
+        gameVM.buddyThinking = true
+        gameVM.message = S.t("ttt.thinking")
+        quip(S.t("ttt.thinking"), seconds: 2)
+        gameTimer?.invalidate()
+        gameTimer = Timer.scheduledTimer(withTimeInterval: Double.random(in: 0.5...1.1), repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            // Mostly perfect, occasionally sloppy — otherwise nobody ever wins against it.
+            if let m = self.gameVM.game.move(skill: 0.8) { self.gameVM.game.play(m) }
+            self.gameVM.buddyThinking = false
+            if !self.finishIfOver() { self.gameVM.message = S.t("ttt.yourturn") }
+        }
+    }
+
+    /// Handles the end of a game: score, message, buddy reaction. Returns true when the game is over.
+    private func finishIfOver() -> Bool {
+        switch gameVM.game.outcome {
+        case .ongoing:
+            return false
+        case .win(let p):
+            if p == .o {
+                gameVM.losses += 1
+                gameVM.message = S.t("ttt.win")
+                store.addMoment(.done, S.t("ttt.bubble.win"))
+            } else {
+                gameVM.wins += 1
+                gameVM.message = S.t("ttt.lose")
+                store.addMoment(.error, S.t("ttt.bubble.lose"))
+            }
+        case .draw:
+            gameVM.draws += 1
+            gameVM.message = S.t("ttt.drawq")
+            quip(S.t("ttt.bubble.draw"), seconds: 4)
+        }
+        // Loser starts the next round; after a draw the human starts.
+        let nextStarter: TicTacToe.Player = {
+            if case .win(let p) = gameVM.game.outcome { return p.other }
+            return .x
+        }()
+        gameTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
+            guard let self = self, self.gamePanel?.isVisible == true else { return }
+            self.newGame(starter: nextStarter)
+        }
+        return true
+    }
+
+    @objc private func toggleWander() {
+        settings.wander.toggle()
+        if settings.wander { startWander() } else { stopWander() }
+    }
     @objc private func toggleFlat() { settings.flat.toggle() }
     @objc private func toggleQuips() { settings.quips.toggle() }
     @objc private func toggleSounds() { settings.sounds.toggle() }
