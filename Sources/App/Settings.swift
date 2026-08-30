@@ -54,7 +54,7 @@ final class Settings {
         d.register(defaults: [
             "card": false, "sounds": true, "quips": true, "pollCowork": true, "pollChats": true,
             "size": PetSize.m.rawValue, "theme": Theme.terracotta.rawValue, "style": SpriteStyle.pixel.rawValue,
-            "usage": UsageMode.bar.rawValue,
+            "usage": UsageMode.bar.rawValue, "mic": true,
         ])
     }
 
@@ -109,6 +109,8 @@ final class Settings {
     var flat: Bool { get { d.bool(forKey: "flat") } set { d.set(newValue, forKey: "flat") } }
     var sounds: Bool { get { d.bool(forKey: "sounds") } set { d.set(newValue, forKey: "sounds") } }
     var quips: Bool { get { d.bool(forKey: "quips") } set { d.set(newValue, forKey: "quips") } }
+    /// Voice button under the buddy (opens Claude Quick Entry / a new chat).
+    var mic: Bool { get { d.bool(forKey: "mic") } set { d.set(newValue, forKey: "mic") } }
     /// Walk along the edges of the screen (never across it).
     var wander: Bool { get { d.bool(forKey: "wander") } set { d.set(newValue, forKey: "wander") } }
     var pollCowork: Bool { get { d.bool(forKey: "pollCowork") } set { d.set(newValue, forKey: "pollCowork") } }

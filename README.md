@@ -32,6 +32,12 @@ across it — with a proper walk cycle, pausing when Claude needs you or your cu
 And it plays **tic-tac-toe** (menu → 🎮): you are X, it thinks for a moment, gloats when it wins and
 sulks when it loses. It plays well but not perfectly, so you can beat it.
 
+**Voice button:** the round microphone under the buddy opens Claude's *Quick Entry* (the panel you
+normally get by double-tapping ⌥) — press Caps Lock there to dictate (enable dictation once in Claude's
+Quick Entry settings). Buddy simulates the ⌥⌥ shortcut, so macOS asks once for Accessibility access;
+without it the click falls back to opening a new chat. ⌥-click always opens a new chat. Hide it via
+Behavior → *Show voice button*.
+
 ## Look
 
 - **Style:** pixel (filled, automatic outline + bevel — default) or ASCII (terminal look, 5×12 chars).

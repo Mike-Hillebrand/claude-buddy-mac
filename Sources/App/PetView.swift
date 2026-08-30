@@ -36,6 +36,36 @@ final class PetViewModel: ObservableObject {
     @Published var fontSize: CGFloat = 14
     @Published var cell: CGFloat = 8
     @Published var card = false
+    @Published var mic = true                          // show the voice button
+    @Published var micHover = false
+}
+
+/// Pixel microphone glyph for the voice button.
+struct MicGlyph: View {
+    let color: Color
+    private let rows = [
+        "..###..",
+        ".#####.",
+        ".#####.",
+        ".#####.",
+        ".#####.",
+        "..###..",
+        "#..#..#",
+        ".#####.",
+        "...#...",
+        "..###..",
+    ]
+    var body: some View {
+        Canvas { ctx, size in
+            let u = min(size.width / 7, size.height / 10)
+            let ox = (size.width - u * 7) / 2, oy = (size.height - u * 10) / 2
+            for (y, row) in rows.enumerated() {
+                for (x, ch) in row.enumerated() where ch == "#" {
+                    ctx.fill(Path(CGRect(x: ox + CGFloat(x) * u, y: oy + CGFloat(y) * u, width: u + 0.4, height: u + 0.4)), with: .color(color))
+                }
+            }
+        }
+    }
 }
 
 /// Speech bubble with a tail at the bottom-left, drawn as one path so the border stays continuous.
@@ -87,6 +117,7 @@ struct Marquee: View {
 
 struct PetView: View {
     @ObservedObject var vm: PetViewModel
+    static let micSize: CGFloat = 24
 
     private var mono: Font { .custom("Menlo", size: vm.fontSize) }
     private var small: Font { .custom("Menlo", size: max(9, vm.fontSize * 0.72)) }
@@ -139,6 +170,17 @@ struct PetView: View {
             .frame(width: spriteWidth, height: spriteHeight, alignment: .topLeading)
 
             HStack(spacing: 5) {
+                if vm.mic {
+                    ZStack {
+                        Circle().fill(vm.micHover ? accent : Color(white: 0.98))
+                        Circle().stroke(Color(white: 0.1), lineWidth: 2)
+                        MicGlyph(color: vm.micHover ? Color(white: 0.98) : Color(white: 0.1))
+                            .frame(width: 11, height: 15)
+                    }
+                    .frame(width: PetView.micSize, height: PetView.micSize)
+                    .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                    .padding(.trailing, 3)
+                }
                 ForEach(vm.sessions.prefix(12)) { s in
                     Circle()
                         .fill(color(for: s.state))

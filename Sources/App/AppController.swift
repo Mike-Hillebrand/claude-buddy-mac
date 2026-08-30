@@ -60,6 +60,7 @@ final class AppController: NSObject, NSMenuDelegate {
         vm.style = settings.style
         vm.card = settings.card
         vm.usageMode = settings.usageMode
+        vm.mic = settings.mic
 
         panel = PetPanel(contentRect: NSRect(origin: .zero, size: panelSize()))
         let catcher = DragCatcherView(frame: panel.contentView!.bounds)
@@ -76,6 +77,8 @@ final class AppController: NSObject, NSMenuDelegate {
             guard let self = self, let f = self.store.focus else { return }
             self.open(session: f, target: self.settings.openTarget)
         }
+        panel.buttonHitTest = { [weak self] p in self?.micRect().contains(p) ?? false }
+        panel.onButton = { [weak self] in self?.startVoice(alternate: NSEvent.modifierFlags.contains(.option)) }
         panel.onRightClick = { [weak self] ev in self?.showContextMenu(ev) }
         panel.onMoved = { [weak self] in
             guard let self = self else { return }
@@ -287,17 +290,71 @@ final class AppController: NSObject, NSMenuDelegate {
         return rects
     }
 
+    /// The voice button (panel coordinates): first item of the label row, above the usage strip.
+    func micRect() -> NSRect {
+        guard settings.mic else { return .zero }
+        let fs = vm.fontSize
+        let small = max(9, fs * 0.72)
+        let usageH: CGFloat = settings.usageMode == .off ? 0 : small * 1.3 + 4
+        let size = PetView.micSize
+        return NSRect(x: 10, y: 8 + usageH + 1, width: size, height: size)
+    }
+
     private func updateMousePassThrough() {
         guard let panel = panel, let catcher = panel.contentView as? DragCatcherView else { return }
         if catcher.isDragging { panel.ignoresMouseEvents = false; return }
         let loc = NSEvent.mouseLocation
         guard panel.frame.contains(loc) else {
             if panel.ignoresMouseEvents { panel.ignoresMouseEvents = false }   // idle default: catch, so a fresh entry works
+            if vm.micHover { vm.micHover = false }
             return
         }
         let local = NSPoint(x: loc.x - panel.frame.minX, y: loc.y - panel.frame.minY)
         let hit = hitRects().contains { $0.contains(local) }
         if panel.ignoresMouseEvents == hit { panel.ignoresMouseEvents = !hit }
+        let hover = micRect().contains(local)
+        if hover != vm.micHover { vm.micHover = hover }
+    }
+
+    // MARK: Voice button → Claude Quick Entry (double-tap ⌥), fallback: new chat
+
+    private var axHintShown = false
+
+    private func startVoice(alternate: Bool) {
+        if alternate { openNewChat(); return }
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        if AXIsProcessTrustedWithOptions(opts) {
+            quip(S.t("mic.opening"), seconds: 2)
+            // Quick Entry's default shortcut is a double tap on Option.
+            let src = CGEventSource(stateID: .hidSystemState)
+            let optionKey: CGKeyCode = 58
+            for i in 0..<2 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.09) {
+                    // Modifier keys are reported as flagsChanged events, not keyDown/keyUp.
+                    let down = CGEvent(keyboardEventSource: src, virtualKey: optionKey, keyDown: true)
+                    down?.type = .flagsChanged
+                    down?.flags = .maskAlternate
+                    down?.post(tap: .cghidEventTap)
+                    let up = CGEvent(keyboardEventSource: src, virtualKey: optionKey, keyDown: false)
+                    up?.type = .flagsChanged
+                    up?.flags = []
+                    up?.post(tap: .cghidEventTap)
+                }
+            }
+        } else {
+            // No accessibility permission (macOS just showed its prompt): open a new chat instead.
+            if !axHintShown { axHintShown = true; quip(S.t("mic.needs.ax"), seconds: 6) }
+            openNewChat()
+        }
+    }
+
+    private func openNewChat() {
+        quip(S.t("mic.newchat"), seconds: 2)
+        if let url = URL(string: "claude://claude.ai/new?surface=chat&source=desktop_action") {
+            NSWorkspace.shared.open(url)
+        } else {
+            openClaudeApp()
+        }
     }
 
     // MARK: Demo command channel (`--demo`): lines in ~/Library/Application Support/Buddy/cmd.txt
@@ -323,6 +380,7 @@ final class AppController: NSObject, NSMenuDelegate {
         switch cmd {
         case "pet": petTheBuddy()
         case "clear": store.removeAll()
+        case "mic": startVoice(alternate: arg == "chat")
         case "quip": quip(arg, seconds: 4)
         case "menu":
             // Pop the context menu up next to the sprite (as if right-clicked).
@@ -767,6 +825,7 @@ final class AppController: NSObject, NSMenuDelegate {
         // Verhalten
         let beh = NSMenu()
         beh.addItem(toggle(S.t("menu.wander"), settings.wander, #selector(toggleWander)))
+        beh.addItem(toggle(S.t("menu.mic"), settings.mic, #selector(toggleMic)))
         beh.addItem(toggle(S.t("menu.quips"), settings.quips, #selector(toggleQuips)))
         beh.addItem(toggle(S.t("menu.sounds"), settings.sounds, #selector(toggleSounds)))
         beh.addItem(toggle(S.t("menu.poll.cowork"), settings.pollCowork, #selector(togglePollCowork)))
@@ -1063,6 +1122,7 @@ final class AppController: NSObject, NSMenuDelegate {
         return true
     }
 
+    @objc private func toggleMic() { settings.mic.toggle(); vm.mic = settings.mic }
     @objc private func toggleWander() {
         settings.wander.toggle()
         if settings.wander { startWander() } else { stopWander() }

@@ -5,6 +5,9 @@ import SwiftUI
 final class PetPanel: NSPanel {
     var onClick: (() -> Void)?
     var onDoubleClick: (() -> Void)?
+    var onButton: (() -> Void)?
+    /// Returns true when a point (window coordinates) is on the voice button.
+    var buttonHitTest: ((NSPoint) -> Bool)?
     var onRightClick: ((NSEvent) -> Void)?
     var onMoved: (() -> Void)?
 
@@ -58,7 +61,9 @@ final class DragCatcherView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
         if moved { panel?.onMoved?() }
+        else if panel?.buttonHitTest?(local) == true { panel?.onButton?() }
         else if event.clickCount == 2 { panel?.onDoubleClick?() }
         else { panel?.onClick?() }
         dragStart = nil; windowStart = nil; moved = false

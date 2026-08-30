@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="Buddy"
 BUNDLE_ID="com.mikehillebrand.buddy"
-VERSION="1.1.0"
+VERSION="1.2.0"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
 SDK="$(xcrun --show-sdk-path)"
