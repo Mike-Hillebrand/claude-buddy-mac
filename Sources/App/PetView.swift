@@ -28,9 +28,6 @@ final class PetViewModel: ObservableObject {
     @Published var state: PetState = .sleeping
     @Published var sessions: [TrackedSession] = []
     @Published var label = ""
-    @Published var usageMode: UsageMode = .bar
-    @Published var usageLine = ""                      // bar mode
-    @Published var tickerText = ""                     // ticker mode
     @Published var particles: [Particle] = []
     @Published var theme: Theme = .terracotta
     @Published var fontSize: CGFloat = 14
@@ -88,32 +85,6 @@ struct BubbleShape: Shape {
     }
 }
 
-struct Marquee: View {
-    let text: String
-    let font: Font
-    let charWidth: CGFloat
-    let width: CGFloat
-    let color: Color
-
-    var body: some View {
-        let gap: CGFloat = 48
-        let textW = CGFloat(text.count) * charWidth + gap
-        TimelineView(.animation) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            let offset = CGFloat((t * 36).truncatingRemainder(dividingBy: Double(textW)))
-            HStack(spacing: gap) {
-                Text(text)
-                Text(text)
-            }
-            .font(font)
-            .foregroundColor(color)
-            .fixedSize()
-            .offset(x: -offset)
-        }
-        .frame(width: width, alignment: .leading)
-        .clipped()
-    }
-}
 
 struct PetView: View {
     @ObservedObject var vm: PetViewModel
@@ -121,7 +92,6 @@ struct PetView: View {
 
     private var mono: Font { .custom("Menlo", size: vm.fontSize) }
     private var small: Font { .custom("Menlo", size: max(9, vm.fontSize * 0.72)) }
-    private var smallCharWidth: CGFloat { max(9, vm.fontSize * 0.72) * 0.602 }
     private var themeColor: Color { Color(nsColor: vm.theme.color) }
     private var accent: Color { Color(red: 1.0, green: 0.42, blue: 0.2) }
     private var textColor: Color { vm.card ? .primary : .white }
@@ -132,7 +102,6 @@ struct PetView: View {
     private var spriteHeight: CGFloat {
         vm.style == .pixel ? vm.cell * CGFloat(PixelBank.rows + PixelBank.hatRows + 2) : lineHeight * 5
     }
-    private var contentWidth: CGFloat { max(spriteWidth, vm.fontSize * 0.602 * 26 + 20) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -195,7 +164,6 @@ struct PetView: View {
             }
             .padding(.top, 3)
 
-            usageView
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -286,31 +254,6 @@ struct PetView: View {
         }
     }
 
-    // MARK: Usage
-
-    @ViewBuilder private var usageView: some View {
-        switch vm.usageMode {
-        case .off:
-            EmptyView()
-        case .bar:
-            if !vm.usageLine.isEmpty {
-                Text(vm.usageLine)
-                    .font(small)
-                    .foregroundColor(vm.card ? .secondary : .white.opacity(0.9))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .shadow(color: vm.card ? .clear : .black.opacity(0.8), radius: 1.5)
-                    .padding(.top, 1)
-            }
-        case .ticker:
-            if !vm.tickerText.isEmpty {
-                Marquee(text: vm.tickerText, font: small, charWidth: smallCharWidth, width: contentWidth,
-                        color: vm.card ? .secondary : .white.opacity(0.9))
-                    .shadow(color: vm.card ? .clear : .black.opacity(0.8), radius: 1.5)
-                    .padding(.top, 1)
-            }
-        }
-    }
 
     func color(for state: PetState) -> Color {
         switch state {

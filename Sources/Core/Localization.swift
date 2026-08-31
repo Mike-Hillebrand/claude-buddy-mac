@@ -82,6 +82,8 @@ enum S {
         "menu.quips": ("Sprüche", "Quips"),
         "menu.wander": ("Am Bildschirmrand herumlaufen", "Wander along the screen edges"),
         "menu.mic": ("Sprach-Button anzeigen", "Show voice button"),
+        "menu.update.check": ("Auf Updates prüfen", "Check for updates"),
+        "update.available": ("Update %@ verfügbar", "Update %@ available"),
         "mic.opening": ("Quick Entry…", "Quick Entry…"),
         "mic.newchat": ("Neuer Chat…", "New chat…"),
         "mic.needs.ax": ("Für Quick Entry: Bedienungshilfen-Zugriff erlauben", "Allow accessibility access for Quick Entry"),

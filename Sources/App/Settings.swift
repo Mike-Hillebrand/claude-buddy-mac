@@ -28,11 +28,6 @@ enum PetSize: String, CaseIterable, Identifiable {
     var label: String { S.t("size." + rawValue) }
 }
 
-enum UsageMode: String, CaseIterable, Identifiable {
-    case off, bar, ticker
-    var id: String { rawValue }
-    var label: String { S.t("usage." + rawValue) }
-}
 
 enum OpenTarget: String, CaseIterable, Identifiable {
     case app, browser
@@ -52,9 +47,9 @@ final class Settings {
 
     private init() {
         d.register(defaults: [
-            "card": false, "sounds": true, "quips": true, "pollCowork": true, "pollChats": true,
+            "card": false, "sounds": true, "quips": true, "updateCheck": true,
             "size": PetSize.m.rawValue, "theme": Theme.terracotta.rawValue, "style": SpriteStyle.pixel.rawValue,
-            "usage": UsageMode.bar.rawValue, "mic": true,
+            "mic": true,
         ])
     }
 
@@ -75,11 +70,6 @@ final class Settings {
         get { OpenTarget(rawValue: d.string(forKey: "openIn") ?? "") ?? .app }
         set { d.set(newValue.rawValue, forKey: "openIn") }
     }
-    var usageMode: UsageMode {
-        get { UsageMode(rawValue: d.string(forKey: "usage") ?? "") ?? .bar }
-        set { d.set(newValue.rawValue, forKey: "usage") }
-    }
-
     var speciesId: String {
         get { d.string(forKey: "species") ?? "" }
         set { d.set(newValue, forKey: "species") }
@@ -109,12 +99,12 @@ final class Settings {
     var flat: Bool { get { d.bool(forKey: "flat") } set { d.set(newValue, forKey: "flat") } }
     var sounds: Bool { get { d.bool(forKey: "sounds") } set { d.set(newValue, forKey: "sounds") } }
     var quips: Bool { get { d.bool(forKey: "quips") } set { d.set(newValue, forKey: "quips") } }
+    /// Check GitHub Releases for a newer version (the only network call Buddy makes).
+    var updateCheck: Bool { get { d.bool(forKey: "updateCheck") } set { d.set(newValue, forKey: "updateCheck") } }
     /// Voice button under the buddy (opens Claude Quick Entry / a new chat).
     var mic: Bool { get { d.bool(forKey: "mic") } set { d.set(newValue, forKey: "mic") } }
     /// Walk along the edges of the screen (never across it).
     var wander: Bool { get { d.bool(forKey: "wander") } set { d.set(newValue, forKey: "wander") } }
-    var pollCowork: Bool { get { d.bool(forKey: "pollCowork") } set { d.set(newValue, forKey: "pollCowork") } }
-    var pollChats: Bool { get { d.bool(forKey: "pollChats") } set { d.set(newValue, forKey: "pollChats") } }
 
     var panelOrigin: CGPoint? {
         get {

@@ -4,7 +4,6 @@ import ServiceManagement
 
 final class AppController: NSObject, NSMenuDelegate {
     let store = SessionStore()
-    let api = ClaudeAPI()
     let vm = PetViewModel()
     let settings = Settings.shared
 
@@ -13,7 +12,6 @@ final class AppController: NSObject, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var hooks: HookWatcher!
     private var tickTimer: Timer?
-    private var pollTimer: Timer?
     private var mouseTimer: Timer?
     private var tick = 0
     private var look: SpriteLook
@@ -22,12 +20,10 @@ final class AppController: NSObject, NSMenuDelegate {
     private var quipText = ""
     private var quipUntil = Date.distantPast
     private var particleCounter = 0
-    private var apiStatus = ""
-    private var apiBackoffUntil = Date.distantPast
-    private var lastChatPoll = Date.distantPast
-    private var lastUsagePoll = Date.distantPast
-    private var usage: ClaudeAPI.Usage?
-    private let bg = DispatchQueue(label: "buddy.api", qos: .utility)
+    // Update notifier (public GitHub Releases check — the only network call Buddy makes)
+    private let updater = UpdateChecker()
+    private var updateTimer: Timer?
+    private var updateAvailable: String?
 
     // Tic-tac-toe
     private var gamePanel: GamePanel?
@@ -59,7 +55,6 @@ final class AppController: NSObject, NSMenuDelegate {
         vm.cell = settings.size.cell
         vm.style = settings.style
         vm.card = settings.card
-        vm.usageMode = settings.usageMode
         vm.mic = settings.mic
 
         panel = PetPanel(contentRect: NSRect(origin: .zero, size: panelSize()))
@@ -102,9 +97,7 @@ final class AppController: NSObject, NSMenuDelegate {
         // underneath — e.g. another desktop pet — stay clickable. Cheap: one mouse-location read per tick.
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in self?.updateMousePassThrough() }
         mouseTimer?.tolerance = 0.02
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in self?.poll() }
-        pollTimer?.tolerance = 1
-        poll()
+        if settings.updateCheck { startUpdateChecks() }
 
         let args = CommandLine.arguments
         if !args.contains("--no-greeting") { quip(S.t("hello"), seconds: 4) }
@@ -119,6 +112,26 @@ final class AppController: NSObject, NSMenuDelegate {
             wanderPhaseUntil = Date().addingTimeInterval(40)
         }
         if args.contains("--game") { openGame() }
+    }
+
+    // MARK: Update notifier
+
+    private func startUpdateChecks() {
+        updateTimer?.invalidate()
+        checkForUpdate()
+        // Re-check every 6 hours while running.
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in self?.checkForUpdate() }
+        updateTimer?.tolerance = 600
+    }
+
+    private func checkForUpdate() {
+        updater.check { [weak self] newer in
+            DispatchQueue.main.async {
+                guard let self = self, let v = newer, v != self.updateAvailable else { return }
+                self.updateAvailable = v
+                self.quip(String(format: S.t("update.available"), v), seconds: 8)
+            }
+        }
     }
 
     // MARK: Wandering (edges only, never across the screen)
@@ -237,7 +250,7 @@ final class AppController: NSObject, NSMenuDelegate {
 
     private func panelSize() -> NSSize {
         let fs = settings.size.fontSize
-        let usageH: CGFloat = settings.usageMode == .off ? 0 : fs * 0.72 * 1.3 + 4
+        let usageH: CGFloat = 0
         if settings.style == .pixel {
             let cell = settings.size.cell
             let spriteW = cell * CGFloat(PixelBank.cols + 2)
@@ -272,7 +285,7 @@ final class AppController: NSObject, NSMenuDelegate {
         let pad: CGFloat = 10, bottom: CGFloat = 8
         let small = max(9, fs * 0.72)
         let labelH = small * 1.3 + 6
-        let usageH: CGFloat = settings.usageMode == .off ? 0 : small * 1.3 + 4
+        let usageH: CGFloat = 0
         let spriteW: CGFloat = settings.style == .pixel ? vm.cell * CGFloat(PixelBank.cols + 2) : fs * 0.602 * 12 + 4
         let spriteH: CGFloat = settings.style == .pixel ? vm.cell * CGFloat(PixelBank.rows + PixelBank.hatRows + 2) : fs * 1.2 * 5
         var rects: [NSRect] = []
@@ -290,14 +303,11 @@ final class AppController: NSObject, NSMenuDelegate {
         return rects
     }
 
-    /// The voice button (panel coordinates): first item of the label row, above the usage strip.
+    /// The voice button (panel coordinates): first item of the label row under the sprite.
     func micRect() -> NSRect {
         guard settings.mic else { return .zero }
-        let fs = vm.fontSize
-        let small = max(9, fs * 0.72)
-        let usageH: CGFloat = settings.usageMode == .off ? 0 : small * 1.3 + 4
         let size = PetView.micSize
-        return NSRect(x: 10, y: 8 + usageH + 1, width: size, height: size)
+        return NSRect(x: 10, y: 9, width: size, height: size)
     }
 
     private func updateMousePassThrough() {
@@ -398,7 +408,6 @@ final class AppController: NSObject, NSMenuDelegate {
         case "eyes": if let e = EyeStyle(rawValue: arg) { settings.eyes = e; look = settings.currentLook() }
         case "theme": if let t = Theme(rawValue: arg) { settings.theme = t; vm.theme = t; gameVM.theme = t }
         case "size": if let sz = PetSize(rawValue: arg) { settings.size = sz; vm.fontSize = sz.fontSize; vm.cell = sz.cell; placePanel() }
-        case "usage": if let u = UsageMode(rawValue: arg) { settings.usageMode = u; vm.usageMode = u; lastUsagePoll = .distantPast; placePanel(); poll() }
         case "style": if let st = SpriteStyle(rawValue: arg) { settings.style = st; vm.style = st; placePanel() }
         case "lang": if let l = Lang(rawValue: arg) { settings.lang = l; S.lang = l }
         case "flat": settings.flat = arg == "1"
@@ -548,51 +557,10 @@ final class AppController: NSObject, NSMenuDelegate {
         }
         if label != vm.label { vm.label = label }
 
-        // Usage strip
-        if settings.usageMode != .off, tick % 4 == 0 { updateUsageText(now: now, label: label) }
-
         // Idle chatter
         if settings.quips, tick % 480 == 0, state == .idle || state == .sleeping || state == .ready {
             quip(Quips.pick(Quips.idle, seed: tick / 480 + Int(now.timeIntervalSince1970) % 7), seconds: 6)
         }
-    }
-
-    private func bar(_ percent: Double, width: Int = 10) -> String {
-        let filled = max(0, min(width, Int((percent / 100 * Double(width)).rounded())))
-        return String(repeating: "▓", count: filled) + String(repeating: "░", count: width - filled)
-    }
-
-    private func relative(_ date: Date?, now: Date) -> String {
-        guard let d = date else { return "" }
-        let s = Int(d.timeIntervalSince(now))
-        if s <= 0 { return S.t("now") }
-        let h = s / 3600, m = (s % 3600) / 60, days = s / 86400
-        if days >= 1 { return "\(S.t("in")) \(days)d \(h % 24)h" }
-        if h >= 1 { return "\(S.t("in")) \(h)h \(m)m" }
-        return "\(S.t("in")) \(m)m"
-    }
-
-    private func updateUsageText(now: Date, label: String) {
-        guard let u = usage, !u.windows.isEmpty else {
-            let placeholder = api.lastError == nil ? S.t("usage.loading") : S.t("usage.unavailable")
-            if vm.usageLine != placeholder { vm.usageLine = placeholder }
-            if vm.tickerText != placeholder { vm.tickerText = placeholder }
-            return
-        }
-        // Bar: the two main windows.
-        let main = u.windows.prefix(2).map { w in "\(w.label) \(bar(w.percent)) \(Int(w.percent.rounded()))%" }
-        let line = main.joined(separator: "  ")
-        if vm.usageLine != line { vm.usageLine = line }
-        // Ticker: everything, with resets and the session summary.
-        var parts: [String] = u.windows.map { w in
-            var s = "\(w.label): \(Int(w.percent.rounded()))%"
-            let r = relative(w.resetsAt, now: now)
-            if !r.isEmpty { s += " (\(S.t("reset")) \(r))" }
-            return s
-        }
-        if !label.isEmpty { parts.append(label) }
-        let ticker = parts.joined(separator: "   ·   ")
-        if vm.tickerText != ticker { vm.tickerText = ticker }
     }
 
     private func quip(_ text: String, seconds: TimeInterval) {
@@ -639,55 +607,6 @@ final class AppController: NSObject, NSMenuDelegate {
         store.addMoment(.pet, "♥")
     }
 
-    // MARK: Polling
-
-    private func poll() {
-        guard Date() >= apiBackoffUntil else { return }
-        guard settings.pollCowork || settings.pollChats || settings.usageMode != .off else { return }
-        let wantChats = settings.pollChats && Date().timeIntervalSince(lastChatPoll) > 20
-        let wantUsage = settings.usageMode != .off && Date().timeIntervalSince(lastUsagePoll) > 60
-        bg.async { [weak self] in
-            guard let self = self else { return }
-            guard self.api.ensureCredentials() != nil else {
-                DispatchQueue.main.async {
-                    self.apiStatus = "\(S.t("api.status.cookie")): \(self.api.lastError ?? "?")"
-                    self.apiBackoffUntil = Date().addingTimeInterval(60)
-                }
-                return
-            }
-            if self.settings.pollCowork {
-                self.api.fetchCodeSessions { res in
-                    DispatchQueue.main.async {
-                        switch res {
-                        case .success(let list):
-                            self.store.apply(api: list)
-                            self.apiStatus = "\(S.t("api.status.ok")) · \(list.count) \(S.t("api.status.sessions"))"
-                        case .failure(let e):
-                            self.apiStatus = "\(S.t("api.status.error")): \(e)"
-                            self.apiBackoffUntil = Date().addingTimeInterval(30)
-                        }
-                    }
-                }
-            }
-            if wantChats {
-                self.lastChatPoll = Date()
-                self.api.fetchChats { res in
-                    DispatchQueue.main.async {
-                        if case .success(let list) = res { self.store.apply(chats: list) }
-                    }
-                }
-            }
-            if wantUsage {
-                self.lastUsagePoll = Date()
-                self.api.fetchUsage { res in
-                    DispatchQueue.main.async {
-                        if case .success(let u) = res { self.usage = u }
-                    }
-                }
-            }
-        }
-    }
-
     // MARK: Status item & menus
 
     private func setupStatusItem() {
@@ -714,9 +633,14 @@ final class AppController: NSObject, NSMenuDelegate {
 
     private func buildMenu(into menu: NSMenu) {
         let state = store.globalState
-        let header = NSMenuItem(title: "Buddy \(state.label) · \(S.t("menu.cowork")): \(apiStatus.isEmpty ? S.t("api.status.none") : apiStatus)", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Buddy \(state.label)", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
+        if let v = updateAvailable {
+            let up = NSMenuItem(title: "⬆︎ " + String(format: S.t("update.available"), v), action: #selector(openReleases), keyEquivalent: "")
+            up.target = self
+            menu.addItem(up)
+        }
 
         let sessions = store.visibleSessions
         if sessions.isEmpty {
@@ -807,14 +731,6 @@ final class AppController: NSObject, NSMenuDelegate {
             sizeMenu.addItem(it)
         }
         addSub(look, S.t("menu.size"), sizeMenu)
-        let usageMenu = NSMenu()
-        for m in UsageMode.allCases {
-            let it = NSMenuItem(title: m.label, action: #selector(pickUsage(_:)), keyEquivalent: "")
-            it.target = self; it.representedObject = m.rawValue
-            it.state = m == settings.usageMode ? .on : .off
-            usageMenu.addItem(it)
-        }
-        addSub(look, S.t("menu.usage"), usageMenu)
         look.addItem(toggle(S.t("menu.outline"), !settings.flat, #selector(toggleFlat)))
         look.addItem(toggle(S.t("menu.card"), settings.card, #selector(toggleCard)))
         let shuffle = NSMenuItem(title: S.t("menu.shuffle"), action: #selector(shuffleLook), keyEquivalent: "")
@@ -828,8 +744,7 @@ final class AppController: NSObject, NSMenuDelegate {
         beh.addItem(toggle(S.t("menu.mic"), settings.mic, #selector(toggleMic)))
         beh.addItem(toggle(S.t("menu.quips"), settings.quips, #selector(toggleQuips)))
         beh.addItem(toggle(S.t("menu.sounds"), settings.sounds, #selector(toggleSounds)))
-        beh.addItem(toggle(S.t("menu.poll.cowork"), settings.pollCowork, #selector(togglePollCowork)))
-        beh.addItem(toggle(S.t("menu.poll.chats"), settings.pollChats, #selector(togglePollChats)))
+        beh.addItem(toggle(S.t("menu.update.check"), settings.updateCheck, #selector(toggleUpdateCheck)))
         beh.addItem(.separator())
         let inst = NSMenuItem(title: hooks.hooksInstalled ? S.t("menu.hooks.reinstall") : S.t("menu.hooks.install"), action: #selector(installHooks), keyEquivalent: "")
         inst.target = self
@@ -958,14 +873,6 @@ final class AppController: NSObject, NSMenuDelegate {
         settings.lang = l
         S.lang = l
         quip(S.t("hello"), seconds: 3)
-    }
-    @objc private func pickUsage(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let m = UsageMode(rawValue: raw) else { return }
-        settings.usageMode = m
-        vm.usageMode = m
-        lastUsagePoll = .distantPast
-        placePanel()
-        poll()
     }
     @objc private func pickStyle(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let st = SpriteStyle(rawValue: raw) else { return }
@@ -1130,8 +1037,13 @@ final class AppController: NSObject, NSMenuDelegate {
     @objc private func toggleFlat() { settings.flat.toggle() }
     @objc private func toggleQuips() { settings.quips.toggle() }
     @objc private func toggleSounds() { settings.sounds.toggle() }
-    @objc private func togglePollCowork() { settings.pollCowork.toggle(); if settings.pollCowork { poll() } else { store.apply(api: []) } }
-    @objc private func togglePollChats() { settings.pollChats.toggle(); if !settings.pollChats { store.apply(chats: []) } }
+    @objc private func toggleUpdateCheck() {
+        settings.updateCheck.toggle()
+        if settings.updateCheck { startUpdateChecks() } else { updateTimer?.invalidate(); updateTimer = nil }
+    }
+    @objc private func openReleases() {
+        if let url = URL(string: UpdateChecker.releasesURL) { NSWorkspace.shared.open(url) }
+    }
     @objc private func resetPosition() { settings.panelOrigin = nil; placePanel() }
     @objc private func quit() { NSApp.terminate(nil) }
 

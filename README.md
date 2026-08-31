@@ -1,8 +1,7 @@
 # Buddy — a Claude desktop pet for macOS
 
-A little pixel buddy that floats on your desktop (no window, no card) and shows what Claude is
-doing right now — across **Claude Code**, **Cowork** (cloud + local) and **claude.ai chats**.
-Optional usage strip (5h / 7d windows) as a bar or a ticker.
+A little pixel buddy that floats on your desktop (no window, no card) and shows what **Claude Code**
+is doing right now — thinking, working, waiting for you, done — from the hooks it fires locally.
 
 <p align="center"><img src="docs/buddy.gif" width="250" alt="Buddy cycling through sleeping, idle, thinking, working, needs-you and done"></p>
 
@@ -10,22 +9,18 @@ Built with plain `swiftc` — no Xcode, no developer account, no 7-day signing e
 
 ## What it shows
 
-| State      | Source                                                                                   |
-|------------|------------------------------------------------------------------------------------------|
-| working    | Claude Code `PreToolUse` · Cowork `worker_status = running` · chat `live_status`          |
-| thinking   | Claude Code between prompt and tool call                                                 |
-| needs you  | permission prompt, idle prompt, Cowork `requires_action` / `blocked` (unread, < 2 h), chat `needs_input` |
-| ready      | `Stop`, Cowork `review_ready` (unread, < 1 h)                                            |
-| sleeping   | no sessions                                                                              |
+| State      | Source (Claude Code hooks)                          |
+|------------|-----------------------------------------------------|
+| working    | `PreToolUse` — a tool is running                    |
+| thinking   | between your prompt and the next tool call          |
+| needs you  | permission prompt / idle prompt                     |
+| ready      | `Stop` — the turn finished                          |
+| sleeping   | no active session                                   |
 
 Reactions: confetti + sound when something finishes, jumping `!` when Claude needs you, `x` eyes on
 errors, hearts when you click it, breathing / blinking / the occasional wink while idle, arms that
 wiggle while working. Drag it anywhere (position is remembered). Right-click or the paw icon in the
-menu bar opens the menu.
-
-Clicking a session in the menu opens it — Cowork sessions and chats in the Claude app (or in the
-browser, configurable; hold ⌥ for the other one), local Claude Code sessions reveal their project
-folder. Double-click the buddy to open whatever it is currently reacting to.
+menu bar opens the menu; a menu entry reveals the active session's project folder in Finder.
 
 Extras: **wander mode** (Behavior menu) lets the buddy stroll along the edges of the screen — never
 across it — with a proper walk cycle, pausing when Claude needs you or your cursor comes close.
@@ -45,29 +40,31 @@ Behavior → *Show voice button*.
 - **Hat, eyes, color, size** (S/M/L/XL), card behind the buddy on/off, outline & shading on/off.
 - **Language:** German or English (menu → Language); defaults to German on German systems, English elsewhere.
 - Default species / hat / eyes are rolled deterministically from your account id ("Shuffle" in the menu).
-- **Usage strip:** off · bar (5h/7d) · ticker (all windows with reset times + session summary).
 
-## Data sources
+## How it reads Claude's state
 
-1. **Claude Code hooks** (real-time, local): `hooks/buddy-hook.sh` appends every hook event as one JSON
-   line to `~/Library/Application Support/Buddy/events.jsonl`; Buddy tails the file. Works for the
-   terminal, IDE extensions and the Claude Code tab of the desktop app (cloud sessions don't read local hooks).
-2. **Cowork / bridge sessions:** `GET https://api.anthropic.com/v1/code/sessions?exclude_tags=…` with the
-   `sessionKey` cookie of the Claude desktop app (Keychain item "Claude Safe Storage" → decrypt the cookie
-   DB, the same trick the [claude-usage-widget](https://github.com/Idefixart/claude-usage-widget) uses).
-   Polled every 6 s.
-3. **Chats:** `claude.ai/api/organizations/<org>/chat_conversations` (`needs_input`, `live_status`), every 20 s.
-4. **Usage:** `claude.ai/api/organizations/<org>/usage` (`five_hour`, `seven_day`, …), every 60 s.
+**Claude Code hooks** (real-time, fully local): `hooks/buddy-hook.sh` appends every hook event as one
+JSON line to `~/Library/Application Support/Buddy/events.jsonl`; Buddy tails that file. Works for the
+terminal, IDE extensions and the Claude Code tab of the desktop app. No network, no credentials — the
+file never leaves your machine.
 
-These cloud endpoints are internal and undocumented. If Anthropic changes them only the
-Cowork/chat/usage parts stop working — the hooks keep going. Nothing leaves your machine except
-those requests to claude.ai / api.anthropic.com with your own session cookie.
+## Privacy & security
+
+Buddy makes **exactly one network request**: an unauthenticated `GET` to the public GitHub Releases
+API to check whether a newer version exists (menu → Behavior → *Check for updates*, on by default,
+toggleable). That request carries no cookies and nothing about your account.
+
+Buddy does **not** read your Claude session cookie, keychain, or any Anthropic API. Earlier versions
+(≤ 1.2.0) polled internal Anthropic endpoints by reusing the desktop app's `sessionKey` cookie from a
+third process — that looks like session-token replay to anti-abuse systems and could get your whole
+account signed out across devices. **1.3.0 removed that entirely** (verify with
+`strings Buddy.app/Contents/MacOS/Buddy | grep -i sessionkey` → no matches). If you ran an older
+version and saw repeated logouts, update.
 
 ## Requirements
 
 - macOS 14+ (release zips are Apple Silicon; Intel builds from source)
 - Xcode Command Line Tools (`xcode-select --install`) — that's all, no Xcode
-- Claude desktop app, logged in (for Cowork / chat / usage)
 - Claude Code (for the hooks)
 
 ## Install
@@ -119,7 +116,7 @@ Core tests: copy `Tests/CoreTests.swift` to `main.swift`, then
 ## Demo mode
 
 `Buddy --demo` reads commands from `~/Library/Application Support/Buddy/cmd.txt` (one per line:
-`state working Edit`, `species cat`, `hat crown`, `theme lime`, `usage ticker`, `wander 1 -1`,
+`state working Edit`, `species cat`, `hat crown`, `theme lime`, `wander 1 -1`,
 `walk-now 14`, `game`, `move 4`, `menu`, `pet`, `quip <text>`, …) and ignores real hook events, so a
 script can walk it through every feature for a recording — see `tools/demo.sh`. Other flags:
 `--no-greeting`, `--game`, `--walk-now`, `--wander-dir=-1`.
