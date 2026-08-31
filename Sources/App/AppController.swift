@@ -25,6 +25,12 @@ final class AppController: NSObject, NSMenuDelegate {
     private var updateTimer: Timer?
     private var updateAvailable: String?
 
+    // Local usage (today's Claude Code tokens, read from ~/.claude/projects — no network)
+    private var usageWatcher: LocalUsageWatcher?
+    private var usage = LocalUsageWatcher.Snapshot()
+    private var claudeRunning = false                 // Claude desktop app open? (presence signal)
+    private var lastPresenceCheck = Date.distantPast
+
     // Tic-tac-toe
     private var gamePanel: GamePanel?
     private let gameVM = GameViewModel()
@@ -68,10 +74,7 @@ final class AppController: NSObject, NSMenuDelegate {
         catcher.addSubview(hosting)
 
         panel.onClick = { [weak self] in self?.petTheBuddy() }
-        panel.onDoubleClick = { [weak self] in
-            guard let self = self, let f = self.store.focus else { return }
-            self.open(session: f, target: self.settings.openTarget)
-        }
+        panel.onDoubleClick = { [weak self] in self?.openCurrentSession() }
         panel.buttonHitTest = { [weak self] p in self?.micRect().contains(p) ?? false }
         panel.onButton = { [weak self] in self?.startVoice(alternate: NSEvent.modifierFlags.contains(.option)) }
         panel.onRightClick = { [weak self] ev in self?.showContextMenu(ev) }
@@ -98,6 +101,7 @@ final class AppController: NSObject, NSMenuDelegate {
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in self?.updateMousePassThrough() }
         mouseTimer?.tolerance = 0.02
         if settings.updateCheck { startUpdateChecks() }
+        if settings.usage { startUsageWatch() }
 
         let args = CommandLine.arguments
         if !args.contains("--no-greeting") { quip(S.t("hello"), seconds: 4) }
@@ -132,6 +136,49 @@ final class AppController: NSObject, NSMenuDelegate {
                 self.quip(String(format: S.t("update.available"), v), seconds: 8)
             }
         }
+    }
+
+    // MARK: Local usage (today's Claude Code tokens — read from ~/.claude/projects, no network)
+
+    private func startUsageWatch() {
+        let w = LocalUsageWatcher()
+        w.onChange = { [weak self] snap in
+            DispatchQueue.main.async { self?.usage = snap; self?.refreshUsageLine() }
+        }
+        usageWatcher = w
+        w.start()
+    }
+
+    private func stopUsageWatch() {
+        usageWatcher?.stop(); usageWatcher = nil
+        usage = LocalUsageWatcher.Snapshot()
+        vm.usageLine = ""
+    }
+
+    /// Compact "today" line shown under the buddy, e.g. "⚡ 107M heute · 41×".
+    private func refreshUsageLine() {
+        guard settings.usage, usage.totals.turns > 0 else {
+            if !vm.usageLine.isEmpty { vm.usageLine = "" }
+            return
+        }
+        let line = "⚡ \(LocalUsage.human(usage.totals.total)) \(S.t("usage.today")) · \(usage.totals.turns)×"
+        if line != vm.usageLine { vm.usageLine = line }
+    }
+
+    /// True while Claude Code activity is recent or the Claude desktop app is open — used so the
+    /// buddy dozes (awake) instead of dropping to "sleeping" the moment a turn ends.
+    private func recentlyActive(_ now: Date) -> Bool {
+        if now.timeIntervalSince(lastPresenceCheck) > 5 {
+            lastPresenceCheck = now
+            let apps = NSWorkspace.shared.runningApplications
+            claudeRunning = apps.contains { app in
+                let bid = app.bundleIdentifier?.lowercased() ?? ""
+                return bid == "com.anthropic.claudefordesktop" || (bid.contains("anthropic") && bid.contains("claude"))
+            }
+        }
+        if claudeRunning { return true }
+        if let last = usage.lastActivity { return now.timeIntervalSince(last) < 240 }
+        return false
     }
 
     // MARK: Wandering (edges only, never across the screen)
@@ -332,30 +379,32 @@ final class AppController: NSObject, NSMenuDelegate {
 
     private func startVoice(alternate: Bool) {
         if alternate { openNewChat(); return }
-        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        if AXIsProcessTrustedWithOptions(opts) {
+        // Silent check — never triggers the "control your Mac" prompt. Quick Entry needs Accessibility
+        // (which doesn't stick with ad-hoc signing), so if it isn't granted we just open a new chat.
+        if AXIsProcessTrusted() {
             quip(S.t("mic.opening"), seconds: 2)
-            // Quick Entry's default shortcut is a double tap on Option.
             let src = CGEventSource(stateID: .hidSystemState)
-            let optionKey: CGKeyCode = 58
+            let optionKey: CGKeyCode = 58   // Quick Entry's default shortcut is a double tap on Option.
             for i in 0..<2 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.09) {
                     // Modifier keys are reported as flagsChanged events, not keyDown/keyUp.
                     let down = CGEvent(keyboardEventSource: src, virtualKey: optionKey, keyDown: true)
-                    down?.type = .flagsChanged
-                    down?.flags = .maskAlternate
-                    down?.post(tap: .cghidEventTap)
+                    down?.type = .flagsChanged; down?.flags = .maskAlternate; down?.post(tap: .cghidEventTap)
                     let up = CGEvent(keyboardEventSource: src, virtualKey: optionKey, keyDown: false)
-                    up?.type = .flagsChanged
-                    up?.flags = []
-                    up?.post(tap: .cghidEventTap)
+                    up?.type = .flagsChanged; up?.flags = []; up?.post(tap: .cghidEventTap)
                 }
             }
         } else {
-            // No accessibility permission (macOS just showed its prompt): open a new chat instead.
-            if !axHintShown { axHintShown = true; quip(S.t("mic.needs.ax"), seconds: 6) }
             openNewChat()
+            if !axHintShown { axHintShown = true; quip(S.t("mic.needs.ax"), seconds: 6) }
         }
+    }
+
+    /// Double-click: open the current Claude Code session. Local hook sessions have no per-session URL,
+    /// so this continues the last Claude Code session in the desktop app (and brings it to the front).
+    private func openCurrentSession() {
+        guard let url = URL(string: "claude://code/continue?session=last") else { openClaudeApp(); return }
+        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
     }
 
     private func openNewChat() {
@@ -444,9 +493,12 @@ final class AppController: NSObject, NSMenuDelegate {
         if tick % 40 == 0 { store.prune() }
         if demoMode { pollDemoCommands() }
 
-        let state = store.globalState
-        let focus = store.focus
         let now = Date()
+        var state = store.globalState
+        // Recent local activity (or the Claude app being open) keeps the buddy awake — it dozes
+        // with the chosen eyes instead of flatlining to "sleeping" the moment a turn ends.
+        if state == .sleeping && recentlyActive(now) { state = .idle }
+        let focus = store.focus
         let recent = store.recentMoments(within: 4)
         let doneM = recent.last { $0.kind == .done }
         let errM = store.recentMoments(within: 3).last { $0.kind == .error }
@@ -473,8 +525,7 @@ final class AppController: NSObject, NSMenuDelegate {
         if errM != nil { eye = "x" }
         else if doneM != nil || petM != nil { eye = "^" }
         else if state == .attention { eye = "O" }
-        else if state == .sleeping { eye = "-" }
-        else if tick % 16 == 0 { eye = "-" }   // blink
+        else if tick % 16 == 0 { eye = "-" }   // blink — otherwise the chosen eye style shows, even at rest
         if settings.style == .pixel {
             let walking = vm.walking
             let n = max(1, walking && !pixelSpecies.walk.isEmpty ? pixelSpecies.walk.count : pixelSpecies.frames.count)
@@ -641,6 +692,14 @@ final class AppController: NSObject, NSMenuDelegate {
             up.target = self
             menu.addItem(up)
         }
+        if settings.usage, usage.totals.turns > 0 {
+            let t = usage.totals
+            var line = "⚡ \(LocalUsage.human(t.total)) \(S.t("usage.today")) · \(t.turns)× · out \(LocalUsage.human(t.output))"
+            if usage.costUSD >= 0.01 { line += String(format: " · ≈ $%.2f", usage.costUSD) }
+            let u = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            u.isEnabled = false
+            menu.addItem(u)
+        }
 
         let sessions = store.visibleSessions
         if sessions.isEmpty {
@@ -742,6 +801,7 @@ final class AppController: NSObject, NSMenuDelegate {
         let beh = NSMenu()
         beh.addItem(toggle(S.t("menu.wander"), settings.wander, #selector(toggleWander)))
         beh.addItem(toggle(S.t("menu.mic"), settings.mic, #selector(toggleMic)))
+        beh.addItem(toggle(S.t("menu.usage"), settings.usage, #selector(toggleUsage)))
         beh.addItem(toggle(S.t("menu.quips"), settings.quips, #selector(toggleQuips)))
         beh.addItem(toggle(S.t("menu.sounds"), settings.sounds, #selector(toggleSounds)))
         beh.addItem(toggle(S.t("menu.update.check"), settings.updateCheck, #selector(toggleUpdateCheck)))
@@ -1030,6 +1090,10 @@ final class AppController: NSObject, NSMenuDelegate {
     }
 
     @objc private func toggleMic() { settings.mic.toggle(); vm.mic = settings.mic }
+    @objc private func toggleUsage() {
+        settings.usage.toggle()
+        if settings.usage { startUsageWatch() } else { stopUsageWatch() }
+    }
     @objc private func toggleWander() {
         settings.wander.toggle()
         if settings.wander { startWander() } else { stopWander() }

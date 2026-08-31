@@ -49,7 +49,7 @@ final class Settings {
         d.register(defaults: [
             "card": false, "sounds": true, "quips": true, "updateCheck": true,
             "size": PetSize.m.rawValue, "theme": Theme.terracotta.rawValue, "style": SpriteStyle.pixel.rawValue,
-            "mic": true,
+            "mic": true, "usage": true,
         ])
     }
 
@@ -105,6 +105,10 @@ final class Settings {
     var mic: Bool { get { d.bool(forKey: "mic") } set { d.set(newValue, forKey: "mic") } }
     /// Walk along the edges of the screen (never across it).
     var wander: Bool { get { d.bool(forKey: "wander") } set { d.set(newValue, forKey: "wander") } }
+    /// Show today's local Claude Code token usage under the buddy (read from
+    /// ~/.claude/projects; purely local, no network). Also keeps the buddy awake while
+    /// there is recent local activity, so it dozes instead of flatlining to sleep.
+    var usage: Bool { get { d.bool(forKey: "usage") } set { d.set(newValue, forKey: "usage") } }
 
     var panelOrigin: CGPoint? {
         get {

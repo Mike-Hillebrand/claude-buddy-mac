@@ -429,20 +429,23 @@ enum PixelRenderer {
             func fill(_ rows: Range<Int>, _ kind: PixelKind = .dark) {
                 for dy in rows { for dx in 0..<w { pattern.append((dx, dy, kind)) } }
             }
+            // Compact pupil for tall (2×3) slots so the styles stay distinct; full slot for 2×2.
+            let pupilRows = min(h, 2)
             switch eyeStyle {
-            case "-":
+            case "-":                                   // sleepy — a low lid line
                 fill((h - 1)..<h)
-            case "O":
+            case "O":                                   // wide awake — big eyes past the slot + a glint
                 fill(-1..<h); pattern.append((w - 1, -1, .white))
-            case "^":
+            case "^":                                   // happy ^_^
                 let mid = max(0, h / 2 - 1)
                 pattern = [(0, mid + 1, .dark), (1, mid, .dark), (2, mid + 1, .dark)]
-            case "x":
+            case "x":                                   // error / dizzy
                 pattern = [(0, 0, .dark), (2, 0, .dark), (1, 1, .dark), (0, 2, .dark), (2, 2, .dark)]
-            case "*":
-                fill(0..<h); pattern.append((0, 0, .white))
-            default:
-                fill(0..<h)
+            case "*":                                   // sparkle — compact pupil + bright glints
+                fill(0..<pupilRows); pattern.append((0, 0, .white))
+                if w >= 2 && pupilRows >= 2 { pattern.append((w - 1, pupilRows - 1, .white)) }
+            default:                                    // dot — compact round pupil
+                fill(0..<pupilRows)
             }
             for (dx, dy, kind) in pattern {
                 let px = ox + dx, py = oy + dy

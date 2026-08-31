@@ -35,6 +35,7 @@ final class PetViewModel: ObservableObject {
     @Published var card = false
     @Published var mic = true                          // show the voice button
     @Published var micHover = false
+    @Published var usageLine = ""                       // today's local Claude Code usage (empty = hidden)
 }
 
 /// Pixel microphone glyph for the voice button.
@@ -163,6 +164,15 @@ struct PetView: View {
                     .shadow(color: vm.card ? .clear : .black.opacity(0.8), radius: 1.5)
             }
             .padding(.top, 3)
+
+            if !vm.usageLine.isEmpty {
+                Text(vm.usageLine)
+                    .font(small)
+                    .foregroundColor(vm.card ? .secondary : .white.opacity(0.92))
+                    .lineLimit(1)
+                    .shadow(color: vm.card ? .clear : .black.opacity(0.8), radius: 1.5)
+                    .padding(.top, 1)
+            }
 
         }
         .padding(.horizontal, 10)

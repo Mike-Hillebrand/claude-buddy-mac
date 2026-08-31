@@ -27,6 +27,12 @@ across it — with a proper walk cycle, pausing when Claude needs you or your cu
 And it plays **tic-tac-toe** (menu → 🎮): you are X, it thinks for a moment, gloats when it wins and
 sulks when it loses. It plays well but not perfectly, so you can beat it.
 
+**Local usage line** (Behavior → *Show usage*, on by default): a small line under the buddy with
+today's Claude Code tokens and turn count — e.g. `⚡ 108M heute · 313×` — read straight from Claude
+Code's own logs in `~/.claude/projects`. No network, no cookies (see *Privacy & security*). It also
+keeps the buddy **awake** while there's recent local activity or the Claude app is open: it dozes with
+its eyes open instead of dropping to sleep the moment a turn ends.
+
 **Voice button:** the round microphone under the buddy opens Claude's *Quick Entry* (the panel you
 normally get by double-tapping ⌥) — press Caps Lock there to dictate (enable dictation once in Claude's
 Quick Entry settings). Buddy simulates the ⌥⌥ shortcut, so macOS asks once for Accessibility access;
@@ -53,6 +59,10 @@ file never leaves your machine.
 Buddy makes **exactly one network request**: an unauthenticated `GET` to the public GitHub Releases
 API to check whether a newer version exists (menu → Behavior → *Check for updates*, on by default,
 toggleable). That request carries no cookies and nothing about your account.
+
+The **usage line** reads Claude Code's own local log files under `~/.claude/projects` (the same JSONL
+Claude Code writes for itself) and sums today's tokens on your machine. It is a plain local file read —
+no network request, no cookie, no keychain, no Anthropic API. Turn it off with Behavior → *Show usage*.
 
 Buddy does **not** read your Claude session cookie, keychain, or any Anthropic API. Earlier versions
 (≤ 1.2.0) polled internal Anthropic endpoints by reusing the desktop app's `sessionKey` cookie from a
