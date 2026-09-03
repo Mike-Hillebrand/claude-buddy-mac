@@ -220,7 +220,10 @@ struct PetView: View {
                 let scale = min(size.width / strip.frameSize.width, size.height / strip.frameSize.height)
                 let dw = strip.frameSize.width * scale, dh = strip.frameSize.height * scale
                 let dest = CGRect(x: (size.width - dw) / 2, y: size.height - dh, width: dw, height: dh)
-                if vm.facingLeft {   // source art already faces left
+                // Inverted from what "source art faces left" suggests at a glance — the previous
+                // condition made the buddy visibly run backwards during wander (reported 03.09.2026,
+                // confirmed against real on-screen movement, not just the source frames).
+                if !vm.facingLeft {
                     ctx.draw(img, in: dest)
                 } else {
                     var mirrored = ctx
