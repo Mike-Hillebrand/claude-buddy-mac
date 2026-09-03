@@ -37,6 +37,8 @@ def save(data):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write("\n")
+    if os.path.exists(SETTINGS):
+        shutil.copymode(SETTINGS, tmp)   # keep 600 — a fresh tmp would otherwise land as 644
     os.replace(tmp, SETTINGS)
 
 

@@ -27,8 +27,23 @@ final class HookWatcher {
 
     func stop() { timer?.invalidate(); timer = nil }
 
+    /// True only when the script exists AND ~/.claude/settings.json still references it.
+    /// Other tools rewrite that file and silently drop our entries (happened 2026-08-31 and went
+    /// unnoticed for three days because this used to check the script file only).
     var hooksInstalled: Bool {
-        FileManager.default.isExecutableFile(atPath: Self.hookScriptPath)
+        guard FileManager.default.isExecutableFile(atPath: Self.hookScriptPath) else { return false }
+        return registeredInSettings
+    }
+
+    private static let settingsPath = NSString(string: "~/.claude/settings.json").expandingTildeInPath
+    private var registrationCache: (mod: Date?, value: Bool)?
+    /// Re-read only when the file's modification date changes — this is polled every tick while sleeping.
+    private var registeredInSettings: Bool {
+        let mod = (try? FileManager.default.attributesOfItem(atPath: Self.settingsPath))?[.modificationDate] as? Date
+        if let c = registrationCache, c.mod == mod { return c.value }
+        let value = (try? String(contentsOfFile: Self.settingsPath, encoding: .utf8))?.contains("buddy-hook.sh") ?? false
+        registrationCache = (mod, value)
+        return value
     }
 
     private func rotateIfHuge() {
