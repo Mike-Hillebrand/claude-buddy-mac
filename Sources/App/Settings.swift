@@ -149,4 +149,11 @@ final class Settings {
         let idx = Int(LookGenerator.fnv1a(speciesId + Settings.accountId()) % UInt32(PixelBank.all.count))
         return PixelBank.all[idx]
     }
+
+    /// Non-nil only while a bitmap species is actually selected (they live under the pixel-style
+    /// species menu, so bitmap rendering never activates under the ascii style).
+    func currentBitmapSpecies() -> BitmapSpecies? {
+        guard style == .pixel else { return nil }
+        return BitmapBank.all.first { $0.id == speciesId }
+    }
 }

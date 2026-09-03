@@ -11,10 +11,26 @@ struct Particle: Identifiable {
     let life: TimeInterval
 }
 
+/// Loads and caches the frame-strip PNGs for bitmap species (see BitmapSprites.swift).
+enum BitmapImageCache {
+    private static var cache: [String: CGImage] = [:]
+    static func cgImage(_ strip: BitmapStrip) -> CGImage? {
+        let key = strip.folder + "/" + strip.resource
+        if let c = cache[key] { return c }
+        guard let url = Bundle.main.url(forResource: strip.resource, withExtension: "png", subdirectory: strip.folder),
+              let img = NSImage(contentsOf: url),
+              let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        cache[key] = cg
+        return cg
+    }
+}
+
 final class PetViewModel: ObservableObject {
     @Published var style: SpriteStyle = .pixel
     @Published var rows: [String] = []                 // ascii style
     @Published var pixels: [Pixel] = []                // pixel style
+    @Published var bitmapStrip: BitmapStrip?           // bitmap style: current animation
+    @Published var bitmapFrame: Int = 0                 // bitmap style: current frame index
     @Published var bubble: [String] = []               // ascii box lines
     @Published var bubbleText = ""                     // pixel-style bubble text
     @Published var bubbleAccent = false
@@ -194,7 +210,30 @@ struct PetView: View {
     // MARK: Sprite
 
     @ViewBuilder private var spriteView: some View {
-        if vm.style == .pixel {
+        if let strip = vm.bitmapStrip {
+            Canvas { ctx, size in
+                guard let cg = BitmapImageCache.cgImage(strip) else { return }
+                let fw = Int(strip.frameSize.width), fh = Int(strip.frameSize.height)
+                let cropRect = CGRect(x: vm.bitmapFrame * fw, y: 0, width: fw, height: fh)
+                guard let frameCG = cg.cropping(to: cropRect) else { return }
+                let img = Image(decorative: frameCG, scale: 1, orientation: .up)
+                let scale = min(size.width / strip.frameSize.width, size.height / strip.frameSize.height)
+                let dw = strip.frameSize.width * scale, dh = strip.frameSize.height * scale
+                let dest = CGRect(x: (size.width - dw) / 2, y: size.height - dh, width: dw, height: dh)
+                if vm.facingLeft {   // source art already faces left
+                    ctx.draw(img, in: dest)
+                } else {
+                    var mirrored = ctx
+                    mirrored.translateBy(x: dest.minX + dest.maxX, y: 0)
+                    mirrored.scaleBy(x: -1, y: 1)
+                    mirrored.draw(img, in: dest)
+                }
+            }
+            .frame(width: spriteWidth, height: spriteHeight)
+            .scaleEffect(x: vm.breath ? 1.0 : 1.02, y: vm.breath ? 1.0 : 0.98, anchor: .bottom)
+            .animation(.easeInOut(duration: 0.5), value: vm.breath)
+            .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
+        } else if vm.style == .pixel {
             Canvas { ctx, _ in
                 let c = vm.cell
                 let base = vm.theme.color

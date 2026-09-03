@@ -471,7 +471,7 @@ final class AppController: NSObject, NSMenuDelegate {
         case "species":
             settings.speciesId = arg; settings.lookInitialized = true
             look = settings.currentLook(); pixelSpecies = settings.currentPixelSpecies()
-            quip("\(S.t("iam")) \(settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName).", seconds: 3)
+            quip("\(S.t("iam")) \(settings.currentBitmapSpecies()?.displayName ?? (settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName)).", seconds: 3)
         case "hat": if let h = Hat(rawValue: arg) { settings.hat = h; look = settings.currentLook() }
         case "eyes": if let e = EyeStyle(rawValue: arg) { settings.eyes = e; look = settings.currentLook() }
         case "theme": if let t = Theme(rawValue: arg) { settings.theme = t; vm.theme = t; gameVM.theme = t }
@@ -546,7 +546,30 @@ final class AppController: NSObject, NSMenuDelegate {
         else if doneM != nil || petM != nil { eye = "^" }
         else if state == .attention { eye = "O" }
         else if tick % 16 == 0 { eye = "-" }   // blink — otherwise the chosen eye style shows, even at rest
-        if settings.style == .pixel {
+        if let bm = settings.currentBitmapSpecies() {
+            if vm.pixels.isEmpty == false { vm.pixels = [] }
+            let walking = vm.walking
+            let strip: BitmapStrip
+            if state == .sleeping, let sl = bm.sleep { strip = sl }
+            else if state == .attention, let wv = bm.attention { strip = wv }
+            else if walking, let wk = bm.walk { strip = wk }
+            else { strip = bm.idle }
+            let n = max(1, strip.frameCount)
+            let frame: Int
+            if walking || state == .working || state == .thinking || state == .attention {
+                frame = tick % n                                   // busy/walking/attention: continuous cycle
+            } else if state == .sleeping {
+                frame = (tick / 6) % n                              // asleep: slow breathing loop
+            } else {
+                let phase = (tick / 2) % (n + 5)                   // idle: short wiggle burst, then rest
+                frame = phase < n ? phase : 0
+            }
+            if strip != vm.bitmapStrip { vm.bitmapStrip = strip }
+            if frame != vm.bitmapFrame { vm.bitmapFrame = frame }
+            let breath = (tick / 2) % 2 == 0
+            if breath != vm.breath { vm.breath = breath }
+        } else if settings.style == .pixel {
+            if vm.bitmapStrip != nil { vm.bitmapStrip = nil }
             let walking = vm.walking
             let n = max(1, walking && !pixelSpecies.walk.isEmpty ? pixelSpecies.walk.count : pixelSpecies.frames.count)
             let frame: Int
@@ -563,6 +586,7 @@ final class AppController: NSObject, NSMenuDelegate {
             let breath = (tick / 2) % 2 == 0
             if breath != vm.breath { vm.breath = breath }
         } else {
+            if vm.bitmapStrip != nil { vm.bitmapStrip = nil }
             let frame = (state == .working || vm.walking) ? tick % 3 : (tick / 2) % 3
             let rows = SpriteComposer.render(look: look, frame: frame, eyeOverride: eye)
             if rows != vm.rows { vm.rows = rows }
@@ -769,11 +793,21 @@ final class AppController: NSObject, NSMenuDelegate {
         addSub(look, S.t("menu.style"), styleMenu)
         let speciesMenu = NSMenu()
         if settings.style == .pixel {
+            let isBitmap = settings.currentBitmapSpecies() != nil
             for sp in PixelBank.all {
                 let it = NSMenuItem(title: sp.displayName, action: #selector(pickSpecies(_:)), keyEquivalent: "")
                 it.target = self; it.representedObject = sp.id
-                it.state = sp.id == pixelSpecies.id ? .on : .off
+                it.state = !isBitmap && sp.id == pixelSpecies.id ? .on : .off
                 speciesMenu.addItem(it)
+            }
+            if !BitmapBank.all.isEmpty {
+                speciesMenu.addItem(.separator())
+                for sp in BitmapBank.all {
+                    let it = NSMenuItem(title: sp.displayName, action: #selector(pickSpecies(_:)), keyEquivalent: "")
+                    it.target = self; it.representedObject = sp.id
+                    it.state = sp.id == settings.speciesId ? .on : .off
+                    speciesMenu.addItem(it)
+                }
             }
         } else {
             for sp in SpriteBank.all {
@@ -948,7 +982,7 @@ final class AppController: NSObject, NSMenuDelegate {
         settings.speciesId = id; settings.lookInitialized = true
         look = settings.currentLook()
         pixelSpecies = settings.currentPixelSpecies()
-        quip("\(S.t("iam")) \(settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName).", seconds: 4)
+        quip("\(S.t("iam")) \(settings.currentBitmapSpecies()?.displayName ?? (settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName)).", seconds: 4)
     }
     @objc private func pickOpenTarget(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let t = OpenTarget(rawValue: raw) else { return }
@@ -995,7 +1029,7 @@ final class AppController: NSObject, NSMenuDelegate {
         }
         look = settings.currentLook()
         pixelSpecies = settings.currentPixelSpecies()
-        quip("\(S.t("new")): \(settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName).", seconds: 4)
+        quip("\(S.t("new")): \(settings.currentBitmapSpecies()?.displayName ?? (settings.style == .pixel ? pixelSpecies.displayName : look.species.displayName)).", seconds: 4)
     }
     @objc private func toggleCard() { settings.card.toggle(); vm.card = settings.card }
     // MARK: Tic-tac-toe
