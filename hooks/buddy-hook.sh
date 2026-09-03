@@ -27,4 +27,7 @@ CWD=$(printf '%s' "$CWD" | sed 's/\\$//')
 printf '{"ts":%s,"event":"%s","session":"%s","cwd":"%s","tool":"%s","type":"%s","agent":"%s","msg":"%s"}\n' \
   "$TS" "$EV" "$SID" "$CWD" "$TOOL" "$NT" "$AT" "$MSG" >> "$DIR/events.jsonl" 2>/dev/null
 
+# Plan limits: refresh the buddy's usage snapshot (throttled to 5 min inside, background, never blocks).
+[ -x "$DIR/buddy-usage.sh" ] && ( "$DIR/buddy-usage.sh" >/dev/null 2>&1 & )
+
 exit 0

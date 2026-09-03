@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="Buddy"
 BUNDLE_ID="com.mikehillebrand.buddy"
-VERSION="1.5.0"
+VERSION="1.6.0"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
 SDK="$(xcrun --show-sdk-path)"
@@ -50,7 +50,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-cp hooks/buddy-hook.sh hooks/install-hooks.py "$APP/Contents/Resources/"
+cp hooks/buddy-hook.sh hooks/buddy-statusline.sh hooks/buddy-usage.sh hooks/install-hooks.py "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/buddy-hook.sh"
 
 # App icon: rendered from Resources/AppIcon-1024.png at build time (iconutil ships with macOS).
