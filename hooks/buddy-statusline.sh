@@ -20,7 +20,10 @@ def iso(v):
         return None
     if isinstance(v, (int, float)):   # unix seconds
         return dt.datetime.fromtimestamp(v, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return str(v)                     # already ISO 8601
+    try:                              # ISO 8601 → "…Z" without fraction (what Buddy parses)
+        return dt.datetime.fromisoformat(str(v).replace("Z", "+00:00")).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return str(v)
 
 def pct(x):
     p = (x or {}).get("used_percentage", (x or {}).get("utilization"))

@@ -15,6 +15,8 @@ MARK = "buddy-hook.sh"
 STATUS_DST = os.path.join(APP_DIR, "buddy-statusline.sh")
 STATUS_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "buddy-statusline.sh")
 STATUS_MARK = "buddy-statusline.sh"
+USAGE_DST = os.path.join(APP_DIR, "buddy-usage.sh")
+USAGE_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "buddy-usage.sh")
 
 EVENTS = [
     "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
@@ -99,6 +101,9 @@ def main():
     # them to usage-snapshot.json for the buddy. Never replace a status line that isn't ours.
     shutil.copyfile(STATUS_SRC, STATUS_DST)
     os.chmod(STATUS_DST, os.stat(STATUS_DST).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # Usage fetcher: buddy-hook.sh runs it (throttled) so the buddy has plan limits in the desktop app too.
+    shutil.copyfile(USAGE_SRC, USAGE_DST)
+    os.chmod(USAGE_DST, os.stat(USAGE_DST).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     current = str((data.get("statusLine") or {}).get("command", ""))
     if not current or STATUS_MARK in current:
         data["statusLine"] = {"type": "command", "command": f'"{STATUS_DST.replace(chr(34), chr(92) + chr(34))}"'}

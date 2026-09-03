@@ -50,7 +50,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-cp hooks/buddy-hook.sh hooks/buddy-statusline.sh hooks/install-hooks.py "$APP/Contents/Resources/"
+cp hooks/buddy-hook.sh hooks/buddy-statusline.sh hooks/buddy-usage.sh hooks/install-hooks.py "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/buddy-hook.sh"
 
 # App icon: rendered from Resources/AppIcon-1024.png at build time (iconutil ships with macOS).

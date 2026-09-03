@@ -31,6 +31,20 @@ LINE=$(printf '%s' '{"model":{"display_name":"Fable 5.1"},"context_window":{"use
 printf '%s' '{"model":{"display_name":"x"}}' | "$HOME/Library/Application Support/Buddy/buddy-statusline.sh" >/dev/null
 [ "$(jq -r '.session.pct' "$SNAP")" = "42" ]                          || { echo "FAIL: snapshot clobbered when rate_limits missing"; exit 1; }
 
+# usage fetcher: fake response (no keychain, no network) → snapshot with normalized ISO; a second
+# call within 5 min is throttled; the hook script wires it in
+U="$HOME/Library/Application Support/Buddy/buddy-usage.sh"
+[ -x "$U" ] || { echo "FAIL: buddy-usage.sh not installed"; exit 1; }
+grep -q 'buddy-usage.sh' "$HOME/Library/Application Support/Buddy/buddy-hook.sh" || { echo "FAIL: buddy-hook.sh does not call buddy-usage.sh"; exit 1; }
+rm -f "$HOME/Library/Application Support/Buddy/.usage-fetch-at"
+BUDDY_USAGE_FAKE='{"five_hour":{"utilization":39.0,"resets_at":"2026-09-03T10:00:00.621024+00:00"},"seven_day":{"utilization":37.0,"resets_at":"2026-09-03T23:59:59.621046+00:00"}}' "$U"
+[ "$(jq -r '.session.pct' "$SNAP")" = "39" ]                          || { echo "FAIL: usage session.pct"; exit 1; }
+[ "$(jq -r '.weeklyAll.pct' "$SNAP")" = "37" ]                        || { echo "FAIL: usage weeklyAll.pct"; exit 1; }
+[ "$(jq -r '.session.resetsAt' "$SNAP")" = "2026-09-03T10:00:00Z" ]   || { echo "FAIL: usage resets_at not normalized: $(jq -r .session.resetsAt "$SNAP")"; exit 1; }
+BUDDY_USAGE_FAKE='{"five_hour":{"utilization":99.0}}' "$U"
+[ "$(jq -r '.session.pct' "$SNAP")" = "39" ]                          || { echo "FAIL: second fetch within 5 min not throttled"; exit 1; }
+[ ! -e "$HOME/Library/Group Containers" ]                             || { echo "FAIL: legacy widget dir must not be created"; exit 1; }
+
 python3 "$INSTALLER" >/dev/null
 [ "$(ours)" = "12" ]                    || { echo "FAIL: not idempotent, got $(ours)"; exit 1; }
 
