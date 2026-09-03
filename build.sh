@@ -53,6 +53,11 @@ EOF
 cp hooks/buddy-hook.sh hooks/buddy-statusline.sh hooks/buddy-usage.sh hooks/install-hooks.py "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/buddy-hook.sh"
 
+# Bitmap species artwork (see Sources/Core/BitmapSprites.swift) — one subfolder per species.
+if [ -d Resources/Bulldog ]; then
+  cp -R Resources/Bulldog "$APP/Contents/Resources/Bulldog"
+fi
+
 # App icon: rendered from Resources/AppIcon-1024.png at build time (iconutil ships with macOS).
 if [ -f Resources/AppIcon-1024.png ] && command -v iconutil >/dev/null; then
   ICONSET="$BUILD_DIR/AppIcon.iconset"

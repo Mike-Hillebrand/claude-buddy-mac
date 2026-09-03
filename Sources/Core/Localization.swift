@@ -187,6 +187,7 @@ enum S {
         "name.turtle": ("Schildkröte", "Turtle"),
         "name.goose": ("Gans", "Goose"),
         "name.chonk": ("Chonk", "Chonk"),
+        "name.bulldog": ("Bulldogge", "Bulldog"),
     ]
 }
 
