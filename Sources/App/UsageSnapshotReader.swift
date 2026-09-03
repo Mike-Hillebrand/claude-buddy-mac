@@ -1,22 +1,29 @@
 import Foundation
 
-/// Reads the Claude-Usage widget's on-disk snapshot and hands Buddy the plan resets.
+/// Reads the on-disk plan-reset snapshot and hands Buddy the resets.
 ///
 /// Read-only: Buddy never fetches plan usage itself (that needs the session cookie = the logout
-/// bug). It only displays this file, which a separate tool writes. No network, no cookie, no keychain.
+/// bug). The file is written by buddy-statusline.sh from the `rate_limits` block Claude Code pipes
+/// to its status line — official data, no network, no cookie, no keychain.
 final class UsageSnapshotReader {
-    /// The widget writes here (see its WidgetShared.swift → SharedStore.snapshotURL).
+    /// Written by buddy-statusline.sh (installed next to buddy-hook.sh).
     static let defaultURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Buddy/usage-snapshot.json")
+    /// Legacy source: the Claude-Usage widget's snapshot, used only while Buddy's own file doesn't exist.
+    static let legacyWidgetURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Group Containers/group.com.claude.usage-widget/usage-snapshot.json")
 
-    private let url: URL
+    private let fixedURL: URL?
+    private var url: URL {
+        fixedURL ?? (FileManager.default.fileExists(atPath: Self.defaultURL.path) ? Self.defaultURL : Self.legacyWidgetURL)
+    }
     private(set) var resets: UsageResets?
     var onChange: ((UsageResets?) -> Void)?
 
     private var timer: Timer?
     private var lastMod: Date?
 
-    init(url: URL = UsageSnapshotReader.defaultURL) { self.url = url }
+    init(url: URL? = nil) { self.fixedURL = url }
 
     func start() {
         read()

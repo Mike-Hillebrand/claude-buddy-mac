@@ -5,10 +5,10 @@ import Foundation
 // Buddy does NOT fetch plan usage — reusing the desktop app's session cookie against internal
 // endpoints is exactly what logged the account out (removed in 1.3.0, never coming back).
 //
-// Instead Buddy *reads* the snapshot the Claude-Usage widget already writes to disk
-// (~/Library/Group Containers/group.com.claude.usage-widget/usage-snapshot.json) and shows it.
-// That file is produced by a separate tool; Buddy only displays it. No network, no cookie,
-// no keychain. This file is pure parsing + formatting so it stays Foundation-only and testable.
+// Instead Buddy *reads* a snapshot file (~/Library/Application Support/Buddy/usage-snapshot.json)
+// that buddy-statusline.sh writes from the `rate_limits` block Claude Code pipes to its status
+// line. Same JSON shape the old Claude-Usage widget used, so that file still works as a fallback.
+// No network, no cookie, no keychain. This file is pure parsing + formatting, Foundation-only.
 
 struct ResetBar: Equatable {
     var pct: Double
