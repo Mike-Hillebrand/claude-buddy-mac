@@ -28,6 +28,8 @@ final class AppController: NSObject, NSMenuDelegate {
     // Local usage (today's Claude Code tokens, read from ~/.claude/projects — no network)
     private var usageWatcher: LocalUsageWatcher?
     private var usage = LocalUsageWatcher.Snapshot()
+    private var usageReader: UsageSnapshotReader?     // reads the widget's plan-reset snapshot (read-only)
+    private var usageResets: UsageResets?
     private var claudeRunning = false                 // Claude desktop app open? (presence signal)
     private var lastPresenceCheck = Date.distantPast
 
@@ -101,7 +103,7 @@ final class AppController: NSObject, NSMenuDelegate {
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in self?.updateMousePassThrough() }
         mouseTimer?.tolerance = 0.02
         if settings.updateCheck { startUpdateChecks() }
-        if settings.usage { startUsageWatch() }
+        if settings.usage { startUsageWatch(); startUsageReader() }
 
         let args = CommandLine.arguments
         if !args.contains("--no-greeting") { quip(S.t("hello"), seconds: 4) }
@@ -143,7 +145,7 @@ final class AppController: NSObject, NSMenuDelegate {
     private func startUsageWatch() {
         let w = LocalUsageWatcher()
         w.onChange = { [weak self] snap in
-            DispatchQueue.main.async { self?.usage = snap; self?.refreshUsageLine() }
+            DispatchQueue.main.async { self?.usage = snap }    // drives doze/awake; the display is the reset line
         }
         usageWatcher = w
         w.start()
@@ -152,16 +154,31 @@ final class AppController: NSObject, NSMenuDelegate {
     private func stopUsageWatch() {
         usageWatcher?.stop(); usageWatcher = nil
         usage = LocalUsageWatcher.Snapshot()
+    }
+
+    // Read-only: displays the plan resets from the widget's snapshot file. Buddy fetches nothing.
+    private func startUsageReader() {
+        let r = UsageSnapshotReader()
+        r.onChange = { [weak self] res in
+            DispatchQueue.main.async { self?.usageResets = res; self?.refreshUsageLine() }
+        }
+        usageReader = r
+        r.start()
+    }
+
+    private func stopUsageReader() {
+        usageReader?.stop(); usageReader = nil
+        usageResets = nil
         vm.usageLine = ""
     }
 
-    /// Compact "today" line shown under the buddy, e.g. "⚡ 107M heute · 41×".
+    /// The line under the buddy: plan resets (5h + week) from the widget's snapshot, read-only.
     private func refreshUsageLine() {
-        guard settings.usage, usage.totals.turns > 0 else {
+        guard settings.usage, let r = usageResets, UsageSnapshotParser.isFresh(r),
+              let line = UsageSnapshotParser.line(r) else {
             if !vm.usageLine.isEmpty { vm.usageLine = "" }
             return
         }
-        let line = "⚡ \(LocalUsage.human(usage.totals.total)) \(S.t("usage.today")) · \(usage.totals.turns)×"
         if line != vm.usageLine { vm.usageLine = line }
     }
 
@@ -403,7 +420,9 @@ final class AppController: NSObject, NSMenuDelegate {
     /// Double-click: open the current Claude Code session. Local hook sessions have no per-session URL,
     /// so this continues the last Claude Code session in the desktop app (and brings it to the front).
     private func openCurrentSession() {
-        guard let url = URL(string: "claude://code/continue?session=last") else { openClaudeApp(); return }
+        // Exact deep link the desktop app uses for this action (found in its own app bundle) —
+        // the `source=desktop_action` suffix is required for the app to route it.
+        guard let url = URL(string: "claude://code/continue?session=last&source=desktop_action") else { openClaudeApp(); return }
         NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
     }
 
@@ -498,6 +517,7 @@ final class AppController: NSObject, NSMenuDelegate {
         // Recent local activity (or the Claude app being open) keeps the buddy awake — it dozes
         // with the chosen eyes instead of flatlining to "sleeping" the moment a turn ends.
         if state == .sleeping && recentlyActive(now) { state = .idle }
+        if tick % 240 == 0 { refreshUsageLine() }   // keep the reset time/countdown current
         let focus = store.focus
         let recent = store.recentMoments(within: 4)
         let doneM = recent.last { $0.kind == .done }
@@ -692,13 +712,19 @@ final class AppController: NSObject, NSMenuDelegate {
             up.target = self
             menu.addItem(up)
         }
-        if settings.usage, usage.totals.turns > 0 {
-            let t = usage.totals
-            var line = "⚡ \(LocalUsage.human(t.total)) \(S.t("usage.today")) · \(t.turns)× · out \(LocalUsage.human(t.output))"
-            if usage.costUSD >= 0.01 { line += String(format: " · ≈ $%.2f", usage.costUSD) }
-            let u = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-            u.isEnabled = false
-            menu.addItem(u)
+        if settings.usage {
+            if let r = usageResets, UsageSnapshotParser.isFresh(r), let rl = UsageSnapshotParser.line(r) {
+                let u = NSMenuItem(title: rl, action: nil, keyEquivalent: "")
+                u.isEnabled = false
+                menu.addItem(u)
+            } else if usage.totals.turns > 0 {
+                let t = usage.totals
+                var line = "⚡ \(LocalUsage.human(t.total)) \(S.t("usage.today")) · \(t.turns)× · out \(LocalUsage.human(t.output))"
+                if usage.costUSD >= 0.01 { line += String(format: " · ≈ $%.2f", usage.costUSD) }
+                let u = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+                u.isEnabled = false
+                menu.addItem(u)
+            }
         }
 
         let sessions = store.visibleSessions
@@ -1092,7 +1118,8 @@ final class AppController: NSObject, NSMenuDelegate {
     @objc private func toggleMic() { settings.mic.toggle(); vm.mic = settings.mic }
     @objc private func toggleUsage() {
         settings.usage.toggle()
-        if settings.usage { startUsageWatch() } else { stopUsageWatch() }
+        if settings.usage { startUsageWatch(); startUsageReader() }
+        else { stopUsageWatch(); stopUsageReader() }
     }
     @objc private func toggleWander() {
         settings.wander.toggle()

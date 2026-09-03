@@ -83,6 +83,7 @@ enum S {
         "menu.wander": ("Am Bildschirmrand herumlaufen", "Wander along the screen edges"),
         "menu.mic": ("Sprach-Button anzeigen", "Show voice button"),
         "usage.today": ("heute", "today"),
+        "usage.week": ("Woche", "Week"),
         "menu.update.check": ("Auf Updates prüfen", "Check for updates"),
         "update.available": ("Update %@ verfügbar", "Update %@ available"),
         "mic.opening": ("Quick Entry…", "Quick Entry…"),
