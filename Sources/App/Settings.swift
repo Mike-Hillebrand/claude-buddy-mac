@@ -105,6 +105,9 @@ final class Settings {
     var mic: Bool { get { d.bool(forKey: "mic") } set { d.set(newValue, forKey: "mic") } }
     /// Walk along the edges of the screen (never across it).
     var wander: Bool { get { d.bool(forKey: "wander") } set { d.set(newValue, forKey: "wander") } }
+    /// Set after the one-time first-launch hook install, so a deliberate "remove hooks" later
+    /// is not silently undone on the next start.
+    var hooksAutoInstalled: Bool { get { d.bool(forKey: "hooksAutoInstalled") } set { d.set(newValue, forKey: "hooksAutoInstalled") } }
     /// Show today's local Claude Code token usage under the buddy (read from
     /// ~/.claude/projects; purely local, no network). Also keeps the buddy awake while
     /// there is recent local activity, so it dozes instead of flatlining to sleep.

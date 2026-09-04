@@ -95,6 +95,10 @@ final class AppController: NSObject, NSMenuDelegate {
             DispatchQueue.main.async { self.store.apply(hook: ev) }
         }
         hooks.start()
+        if !demoMode && !settings.hooksAutoInstalled {
+            settings.hooksAutoInstalled = true
+            if !hooks.hooksInstalled { runHookInstaller(uninstall: false) }
+        }
 
         tickTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.onTick() }
         tickTimer?.tolerance = 0.05
